@@ -7,3 +7,4 @@ scikit-learn==1.0.2         # TF-IDFとコサイン類似度の計算(1.1.3か�
 numpy==1.21.6
 pymysql==1.1.1
 openai==1.55.3
+azure-storage-blob
