@@ -1,11 +1,13 @@
-from fastapi import FastAPI
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
 from models.model import RegenerateRequest
+from models.model import ValuationInput, ValuationOutput
 from services import summarize
 from services import valuation
 from services.word_export import generate_word_file
 from services.valuation import calculate_valuation
+from typing import Optional
 import logging
 import unicodedata
 from services.summarize import (
@@ -15,6 +17,20 @@ from services.summarize import (
 )
 
 app = FastAPI()
+
+
+#通信設定
+origins = [
+    "*"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -110,13 +126,37 @@ async def unison_summary(request: dict):
         raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")
 
 
-@app.post("/valuation")
-async def valuation_endpoint(request: dict):
-    return calculate_valuation(request)
+@app.post("/valuation", response_model=ValuationOutput)
+async def valuation_endpoint(request: ValuationInput):
+    """
+    バリュエーション計算エンドポイント
+    """
+    print(request)
+    try:
+        # 計算を実行
+        valuation_result = calculate_valuation(
+            input_data=request
+        )
+        
 
-@app.get("/word_export")
-async def export_endpoint():
-    return word_export()
+        return valuation_result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))    
+    
+@app.post("/word_export")
+async def export_endpoint(
+    background_tasks: BackgroundTasks,
+    summaries: dict = Body(..., description="要約データを含む辞書形式の入力"),
+    valuation_data: Optional[dict] = Body(None, description="バリュエーションデータ"),
+    company_name: str = Query(..., description="会社名を指定"),
+    file_name: Optional[str] = Query(None, description="生成するWordファイル名 (省略可能)")
+):
+    """
+    Wordファイル生成エンドポイント
+    """
+    return generate_word_file(
+        background_tasks, summaries, valuation_data, company_name, file_name
+    )
 
 @app.post("/regenerate-summary")
 async def user_regenerate(request: dict):

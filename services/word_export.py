@@ -1,9 +1,8 @@
-from fastapi import FastAPI, HTTPException, Query, Body
+from fastapi import Body, Query, BackgroundTasks
 from fastapi.responses import FileResponse
-from docx import Document
 from fastapi.background import BackgroundTasks
+from docx import Document
 import os
-
 
 def delete_file(path: str):
     """指定されたファイルを削除"""
@@ -14,15 +13,15 @@ def delete_file(path: str):
         print(f"ファイル削除エラー: {e}")
 
 
-
 def generate_word_file(
     background_tasks: BackgroundTasks,
     summaries: dict = Body(..., description="要約データを含む辞書形式の入力"),
+    valuation_data: dict = Body(None, description="バリュエーションデータ（オプション）"),
     company_name: str = Query(..., description="会社名を指定"),
     file_name: str = Query(None, description="生成するWordファイル名 (省略可能)")
 ):
     """
-    受け取った要約データをWordドキュメントに保存し、一時的にダウンロード可能にする
+    受け取った要約データおよびバリュエーションデータをWordドキュメントに保存
     """
     # 動的ファイル名の設定
     file_name = file_name or f"{company_name}_summary_report.docx"
@@ -35,14 +34,18 @@ def generate_word_file(
 
     # 要約内容をセクションごとに記載
     for section, content in summaries.items():
-        # セクションヘッダー
         document.add_heading(section.replace("_", " ").capitalize(), level=2)
-        # セクション内容
-        document.add_paragraph(content)
+        document.add_paragraph(content or "内容がありません")
+
+    # バリュエーションデータを追加
+    if valuation_data:
+        document.add_heading("Valuation Data", level=2)
+        for key, value in valuation_data.items():
+            document.add_paragraph(f"{key}: {value}")
 
     # ファイル保存ディレクトリの設定
     output_dir = "output"
-    os.makedirs(output_dir, exist_ok=True)  # 出力ディレクトリを作成
+    os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, file_name)
     document.save(output_path)
 
@@ -55,4 +58,3 @@ def generate_word_file(
         filename=file_name,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
-

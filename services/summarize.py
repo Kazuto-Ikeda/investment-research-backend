@@ -143,7 +143,7 @@ def download_blob_to_temp_file(category: str, company_name: str,) -> str:
                 chatgpt_response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "user", "content": f"{text}\n\n質問: {query}\n300字以内で要約してください。"}
+                        {"role": "user", "content": f"{text}\n\n質問: {query}\n500字以内で要約してください。"}
                     ]
                 )
                 chatgpt_summary = chatgpt_response.choices[0].message.content.strip()
@@ -177,7 +177,7 @@ def unison_summary_logic(query_key: str, company_name: str, industry: str, chatg
         final_summary_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を300字以内でお願いします。"}
+                {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
             ]
         )
         final_summary = final_summary_response.choices[0].message.content.strip()
@@ -240,7 +240,7 @@ def regenerate_summary(
         chatgpt_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "user", "content": f"{text}\n\n質問: {query}\n300字以内で要約してください。"}
+                {"role": "user", "content": f"{text}\n\n質問: {query}\n500字以内で要約してください。"}
             ],
         )
         chatgpt_summary = chatgpt_response.choices[0].message.content.strip()
@@ -256,7 +256,7 @@ def regenerate_summary(
         final_summary_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を300字以内でお願いします。"}
+                {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
             ],
         )
         final_summary = final_summary_response.choices[0].message.content.strip()
