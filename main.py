@@ -131,18 +131,19 @@ async def valuation_endpoint(request: ValuationInput):
     """
     バリュエーション計算エンドポイント
     """
-    print(request)
+    print("Received valuation request:", request)
     try:
         # 計算を実行
         valuation_result = calculate_valuation(
             input_data=request
         )
-        
-
+        print("Valuation result:", valuation_result)
         return valuation_result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))    
+        print("Error in valuation endpoint:", e)
+        raise HTTPException(status_code=400, detail=str(e))
     
+        
 @app.post("/word_export")
 async def export_endpoint(
     background_tasks: BackgroundTasks,

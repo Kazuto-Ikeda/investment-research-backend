@@ -97,15 +97,14 @@ BLOB_CONTAINER_NAME = os.getenv("BLOB_CONTAINER_NAME")
     
     
 def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
-    
+    print("Starting valuation calculation with input:", input_data)
     blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
-    # blob_name = input_data["category"] + ".docx"  # 小分類に .docx を付け加えたファイル名
     blob_name = f"{input_data.category}.docx"
     temp_file_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
     text = ""
-    
+
     try:
-        # Blobクライアントを取得
+        print(f"Accessing Blob: {blob_name}")
         blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
         logging.info(f"アクセスするBlob名: {blob_name}")
 
@@ -113,14 +112,17 @@ def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
         with open(temp_file_path, "wb") as file:
             download_stream = blob_client.download_blob()
             file.write(download_stream.readall())
-            
+        print(f"Downloaded Blob to {temp_file_path}")
+
         # Word文書を読み込む
         doc = Document(temp_file_path)
-        
-                    # 取得したい列名と行名
+        print("Loaded Word document.")
+
+        # 取得したい列名と行名
         target_column = "企業価値/EBITDA"
         target_row = "平均値"
 
+        industry_median_multiple_current = None
 
         # 文書内のテーブルを探索
         for table in doc.tables:
@@ -142,6 +144,7 @@ def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
                     try:
                         # "倍" を削除して数値変換
                         industry_median_multiple_current = float(cell_value.replace("倍", "").strip())
+                        print(f"Found industry median multiple: {industry_median_multiple_current}")
                     except ValueError:
                         raise HTTPException(status_code=500, detail=f"無効な値: '{cell_value}' を数値に変換できません。")
                     break
@@ -152,21 +155,20 @@ def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
 
         if industry_median_multiple_current is None:
             raise HTTPException(status_code=404, detail=f"列 '{target_column}' または 行 '{target_row}' が見つかりませんでした。")
-        
 
-        """
-        バリュエーション計算を行い、アウトプットを生成する。
-        """
-        
+        print("Calculating valuation metrics.")
+
         # 進行期見込みのマルチプルを設定（仮に現状のデータに基づいて予測する例）
         industry_median_multiple_forecast = industry_median_multiple_current * 1.1
-        
+        print(f"Industry median multiple forecast: {industry_median_multiple_forecast}")
+
         # EV（Enterprise Value）の計算
         ev_current = input_data.net_debt_current + input_data.equity_value_current
         ev_forecast = (
             input_data.net_debt_current + input_data.equity_value_current
             if input_data.ebitda_forecast is not None else None
         )
+        print(f"EV Current: {ev_current}, EV Forecast: {ev_forecast}")
 
         # エントリーマルチプルの計算
         entry_multiple_current = (
@@ -177,6 +179,7 @@ def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
             ev_forecast / input_data.ebitda_forecast
             if ev_forecast and input_data.ebitda_forecast and input_data.ebitda_forecast > 0 else None
         )
+        print(f"Entry Multiple Current: {entry_multiple_current}, Entry Multiple Forecast: {entry_multiple_forecast}")
 
         # Implied Equity Valueの計算
         implied_equity_value_current = (
@@ -187,6 +190,7 @@ def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
             industry_median_multiple_forecast * input_data.ebitda_forecast
             if industry_median_multiple_forecast and input_data.ebitda_forecast else None
         )
+        print(f"Implied Equity Value Current: {implied_equity_value_current}, Forecast: {implied_equity_value_forecast}")
 
         return ValuationOutput(
             ebitda_current=input_data.ebitda_current,
@@ -211,6 +215,3 @@ def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
         # 一時ファイルの削除
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
-
-    
-
