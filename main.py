@@ -115,7 +115,7 @@ async def unison_summary(request: dict):
             raise HTTPException(status_code=400, detail="必要なフィールドが不足しています。")
 
         # Perplexityと統合要約を処理
-        final_summary = unison_summary_logic(
+        final_summary = await unison_summary_logic(
             query_key=query_key,
             company_name=company_name,
             industry=industry,
@@ -193,7 +193,7 @@ async def user_regenerate(request: dict):
             detail="エンドポイント処理中にエラーが発生しました。"
         )
     
-    return await regenerate_summary(category, company_name, query_key, perplexity_summary, custom_query, include_perplexity)    
+    return regenerate_summary(category, company_name, query_key, perplexity_summary, custom_query, include_perplexity)    
     
 @app.post("/")
 async def api_test():
