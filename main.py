@@ -10,6 +10,7 @@ from services.valuation import calculate_valuation
 from typing import Optional
 import logging
 import unicodedata
+import httpx
 from services.summarize import (
     download_blob_to_temp_file,
     unison_summary_logic,
@@ -121,6 +122,8 @@ async def unison_summary(request: dict):
             chatgpt_summary=chatgpt_summary,
         )
         return {"status": "success", "final_summary": final_summary}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logging.error(f"エンドポイント処理中のエラー: {e}")
         raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")
@@ -161,32 +164,36 @@ async def export_endpoint(
 
 @app.post("/regenerate-summary")
 async def user_regenerate(request: dict):
-        try:
-            def normalize_text(text: str) -> str:
-                return unicodedata.normalize('NFC', text)
+    try:
+        def normalize_text(text: str) -> str:
+            return unicodedata.normalize('NFC', text)
 
-            # リクエストデータの取得とバリデーション
-            industry = request.get("industry")
-            sector = request.get("sector")
-            category = request.get("category")
-            blob_name = normalize_text(category) + ".docx"  # 小分類に .docx を追加
-            company_name = request.get("company_name")
-            include_perplexity = request.get("include_perplexity", False)  # デフォルトはFalse
-            query_key = request.get("query_key")
-            custom_query = request.get("custom_query")
-            perplexity_summary = request.get("perplexity_summary")
+        # リクエストデータの取得とバリデーション
+        industry = request.get("industry")
+        sector = request.get("sector")
+        category = request.get("category")
+        blob_name = normalize_text(category) + ".docx"  # 小分類に .docx を追加
+        company_name = request.get("company_name")
+        include_perplexity = request.get("include_perplexity", False)  # デフォルトはFalse
+        query_key = request.get("query_key")
+        custom_query = request.get("custom_query")
+        perplexity_summary = request.get("perplexity_summary")
+        
+        # 必須フィールドのチェック
+        if not all([industry, sector, category, company_name, query_key]):
+            raise HTTPException(status_code=400, detail="必要なフィールドが不足しています。")
             
-        except HTTPException as e:
-            logging.error(f"再要約処理中のエラー: {e.detail}")
-            raise e
-        except Exception as e:
-            logging.error(f"エンドポイント処理中の予期しないエラー: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="エンドポイント処理中にエラーが発生しました。"
-            )
-        return regenerate_summary(category, company_name, query_key, perplexity_summary, custom_query, include_perplexity)
+    except HTTPException as e:
+        logging.error(f"再要約処理中のエラー: {e.detail}")
+        raise e
+    except Exception as e:
+        logging.error(f"エンドポイント処理中の予期しないエラー: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="エンドポイント処理中にエラーが発生しました。"
+        )
     
+    return await regenerate_summary(category, company_name, query_key, perplexity_summary, custom_query, include_perplexity)    
     
 @app.post("/")
 async def api_test():

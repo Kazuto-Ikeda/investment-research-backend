@@ -9,6 +9,8 @@ from models.model import RegenerateRequest
 import pymysql
 import os
 import logging
+import httpx
+import openai
 from openai import OpenAI
 import uvicorn
 import requests
@@ -25,6 +27,7 @@ load_dotenv()
 # APIキーの取得
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+PERPLEXITY_API_ENDPOINT = os.getenv("PERPLEXITY_API_ENDPOINT")
 
 # Azure Blob Storage設定
 BLOB_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
@@ -170,11 +173,17 @@ def unison_summary_logic(query_key: str, company_name: str, industry: str, chatg
     """
     try:
         # Perplexityで補足情報を取得
-        perplexity_summary = f"Perplexityで取得した補足情報: {query_key}, {company_name}, {industry}"
+        perplexity_summary = get_perplexity_summary(
+            query_key=query_key,
+            company_name=company_name,
+            industry=industry
+        )
 
         # 統合要約を生成
         combined_text = f"ChatGPTによる要約:\n{chatgpt_summary}\n\nPerplexityによる補足情報:\n{perplexity_summary}"
-        final_summary_response = client.chat.completions.create(
+        
+        # OpenAI APIを用いて統合要約を生成
+        final_summary_response = openai.ChatCompletion.acreate(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
@@ -186,92 +195,135 @@ def unison_summary_logic(query_key: str, company_name: str, industry: str, chatg
         logging.error(f"統合要約エラー: {e}")
         return "統合要約エラーが発生しました。"
 
+def get_perplexity_summary(query_key: str, company_name: str, industry: str) -> str:
+    """
+    Perplexity APIを呼び出して補足情報を取得
+    """
+    try:
+        headers = {
+            "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "query_key": query_key,
+            "company_name": company_name,
+            "industry": industry
+        }
+        with httpx.AsyncClient() as client:
+            response = client.post(PERPLEXITY_API_ENDPOINT, headers=headers, json=payload)
+        
+        if response.status_code != 200:
+            logging.error(f"Perplexity APIエラー: {response.status_code} - {response.text}")
+            return "Perplexityによる補足情報の取得に失敗しました。"
+        
+        data = response.json()
+        # レスポンス形式に応じて適切に要約を取得
+        perplexity_summary = data.get("summary", "補足情報が取得できませんでした。")
+        return perplexity_summary
+    except Exception as e:
+        logging.error(f"Perplexity API呼び出し中のエラー: {e}")
+        return "Perplexityによる補足情報の取得中にエラーが発生しました。"
 
 def regenerate_summary(
     category_name: str,
     company_name: str,
     query_key: str,
-    perplexity_summary: str,
+    perplexity_summary: Optional[str],
     custom_query: Optional[str] = None,
     include_perplexity: bool = False,
-):
+) -> JSONResponse:
     """
     特定の項目だけ再生成する。Perplexityでの補足情報を保持し、それらを含めて結果を返す。
     """
-    blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
-    blob_name = f"{category_name}.docx"  # 小分類に .docx を付け加えたファイル名
-    temp_file_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
-    text = ""
-
-    # Blobクライアントを取得
-    blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
-    logging.info(f"アクセスするBlob名: {blob_name}")
-
-    # Blobストレージからファイルをダウンロード
-    with open(temp_file_path, "wb") as file:
-        download_stream = blob_client.download_blob()
-        file.write(download_stream.readall())
-
-    # Word文書を読み込み、段落を結合
-    doc = Document(temp_file_path)
-    text = ""
-    for paragraph in doc.paragraphs:
-        text += paragraph.text + "\n"
-
-
-    # デフォルトクエリ
-    default_queries = {
-        "current_situation": "業界の現状を説明してください。",
-        "future_outlook": "業界の将来性や抱えている課題を説明してください。",
-        "investment_advantages": f"業界の競合情報および{company_name}の差別化要因を教えてください。",
-        "investment_disadvantages": f"{company_name}のExit先はどのような相手が有力でしょうか？",
-        "swot_analysis": f"{company_name}のSWOT分析をお願いします。",
-        "use_case": "業界のM&A事例について過去実績、将来の見込みを教えてください。",
-        "value_up": f"{company_name}のバリューアップ施策をDX関連とその他に分けて教えてください。",
-    }
-
-    # クエリの取得
-    query = custom_query if custom_query else default_queries.get(query_key)
-    if not query:
-        raise HTTPException(status_code=400, detail="指定されたクエリキーが無効です。")
-
     try:
-        # 初回要約: ChatGPT
-        chatgpt_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "user", "content": f"{text}\n\n質問: {query}\n500字以内で要約してください。"}
-            ],
-        )
-        chatgpt_summary = chatgpt_response.choices[0].message.content.strip()
-        logging.info(f"ChatGPT初回要約結果: {chatgpt_summary}")
-    except Exception as e:
-        logging.error(f"ChatGPT初回要約エラー: {e}")
-        chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
+        # Blobサービスクライアントの初期化
+        blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        blob_name = f"{category_name}.docx"  # 小分類に .docx を付け加えたファイル名
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        temp_file_path = temp_file.name
+        temp_file.close()
+        text = ""
 
-    # 統合要約
-    final_summary = chatgpt_summary
-    combined_text = f"ChatGPTによる要約:\n{chatgpt_summary}\n\nPerplexityによる補足情報:\n{perplexity_summary}"
-    try:
-        final_summary_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
-            ],
-        )
-        final_summary = final_summary_response.choices[0].message.content.strip()
-        logging.info(f"統合要約結果: {final_summary}")
-    except Exception as e:
-        logging.error(f"統合要約エラー: {e}")
-        final_summary = "統合要約エラーが発生しました。"
+        # Blobクライアントを取得
+        blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
+        logging.info(f"アクセスするBlob名: {blob_name}")
 
-    # 結果をまとめて返却
-    return JSONResponse(
-        content={
-            "query_key": query_key,
-            "chatgpt_summary": chatgpt_summary,
-            "perplexity_summary": perplexity_summary,
-            "final_summary": final_summary,
+        # Blobストレージからファイルをダウンロード
+        with open(temp_file_path, "wb") as file:
+            download_stream = blob_client.download_blob()
+            file.write(download_stream.readall())
+
+        # Word文書を読み込み、段落を結合
+        doc = Document(temp_file_path)
+        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+
+        # デフォルトクエリ
+        default_queries = {
+            "current_situation": "業界の現状を説明してください。",
+            "future_outlook": "業界の将来性や抱えている課題を説明してください。",
+            "investment_advantages": f"業界の競合情報および{company_name}の差別化要因を教えてください。",
+            "investment_disadvantages": f"{company_name}のExit先はどのような相手が有力でしょうか？",
+            "swot_analysis": f"{company_name}のSWOT分析をお願いします。",
+            "use_case": "業界のM&A事例について過去実績、将来の見込みを教えてください。",
+            "value_up": f"{company_name}のバリューアップ施策をDX関連とその他に分けて教えてください。",
         }
-    )
 
+        # クエリの取得
+        query = custom_query if custom_query else default_queries.get(query_key)
+        if not query:
+            raise HTTPException(status_code=400, detail="指定されたクエリキーが無効です。")
+
+        # 初回要約: ChatGPT
+        try:
+            chatgpt_response = openai.ChatCompletion.acreate(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "user", "content": f"{text}\n\n質問: {query}\n500字以内で要約してください。"}
+                ],
+            )
+            chatgpt_summary = chatgpt_response.choices[0].message.content.strip()
+            logging.info(f"ChatGPT初回要約結果: {chatgpt_summary}")
+        except Exception as e:
+            logging.error(f"ChatGPT初回要約エラー: {e}")
+            chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
+
+        # 統合要約の生成
+        if include_perplexity and perplexity_summary:
+            combined_text = f"ChatGPTによる要約:\n{chatgpt_summary}\n\nPerplexityによる補足情報:\n{perplexity_summary}"
+            try:
+                final_summary_response = openai.ChatCompletion.acreate(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
+                    ],
+                )
+                final_summary = final_summary_response.choices[0].message.content.strip()
+                logging.info(f"統合要約結果: {final_summary}")
+            except Exception as e:
+                logging.error(f"統合要約エラー: {e}")
+                final_summary = "統合要約エラーが発生しました。"
+        else:
+            # Perplexity要約がない場合、ChatGPTの要約をそのまま最終要約とする
+            final_summary = chatgpt_summary
+
+        # 一時ファイルの削除
+        os.remove(temp_file_path)
+
+        # 結果をまとめて返却
+        return JSONResponse(
+            content={
+                "query_key": query_key,
+                "chatgpt_summary": chatgpt_summary,
+                "perplexity_summary": perplexity_summary if include_perplexity else None,
+                "final_summary": final_summary,
+            }
+        )
+    except HTTPException as e:
+        logging.error(f"再要約処理中のHTTPエラー: {e.detail}")
+        raise e
+    except Exception as e:
+        logging.error(f"再要約処理中の予期しないエラー: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="再要約処理中にエラーが発生しました。"
+        )
