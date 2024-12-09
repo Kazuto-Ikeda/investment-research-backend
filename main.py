@@ -193,8 +193,19 @@ async def user_regenerate(request: dict):
             detail="エンドポイント処理中にエラーが発生しました。"
         )
     
-    return regenerate_summary(category, company_name, query_key, perplexity_summary, custom_query, include_perplexity)    
+    # regenerate_summary を await して呼び出す
+    final_summary_data = await regenerate_summary(
+        category_name=category,
+        company_name=company_name,
+        query_key=query_key,
+        perplexity_summary=perplexity_summary,
+        custom_query=custom_query,
+        include_perplexity=include_perplexity
+    )
     
+    return {"status": "success", "final_summary": final_summary_data["final_summary"]}    
+
+
 @app.post("/")
 async def api_test():
     return print("Hello, world!")

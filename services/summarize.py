@@ -167,7 +167,7 @@ def download_blob_to_temp_file(category: str, company_name: str,) -> str:
         raise HTTPException(status_code=500, detail="エラーが発生しました。再試行してください。")
 
 
-def unison_summary_logic(query_key: str, company_name: str, industry: str, chatgpt_summary: str) -> str:
+async def unison_summary_logic(query_key: str, company_name: str, industry: str, chatgpt_summary: str) -> str:
     """
     Perplexityと統合要約を処理
     """
@@ -183,7 +183,7 @@ def unison_summary_logic(query_key: str, company_name: str, industry: str, chatg
         combined_text = f"ChatGPTによる要約:\n{chatgpt_summary}\n\nPerplexityによる補足情報:\n{perplexity_summary}"
         
         # OpenAI APIを用いて統合要約を生成
-        final_summary_response = openai.ChatCompletion.acreate(
+        final_summary_response = await openai.ChatCompletion.acreate(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
@@ -195,7 +195,7 @@ def unison_summary_logic(query_key: str, company_name: str, industry: str, chatg
         logging.error(f"統合要約エラー: {e}")
         return "統合要約エラーが発生しました。"
 
-def get_perplexity_summary(query_key: str, company_name: str, industry: str) -> str:
+async def get_perplexity_summary(query_key: str, company_name: str, industry: str) -> str:
     """
     Perplexity APIを呼び出して補足情報を取得
     """
@@ -210,7 +210,7 @@ def get_perplexity_summary(query_key: str, company_name: str, industry: str) -> 
             "industry": industry
         }
         with httpx.AsyncClient() as client:
-            response = client.post(PERPLEXITY_API_ENDPOINT, headers=headers, json=payload)
+            response = await client.post(PERPLEXITY_API_ENDPOINT, headers=headers, json=payload)
         
         if response.status_code != 200:
             logging.error(f"Perplexity APIエラー: {response.status_code} - {response.text}")
@@ -224,14 +224,14 @@ def get_perplexity_summary(query_key: str, company_name: str, industry: str) -> 
         logging.error(f"Perplexity API呼び出し中のエラー: {e}")
         return "Perplexityによる補足情報の取得中にエラーが発生しました。"
 
-def regenerate_summary(
+async def regenerate_summary(
     category_name: str,
     company_name: str,
     query_key: str,
     perplexity_summary: Optional[str],
     custom_query: Optional[str] = None,
     include_perplexity: bool = False,
-) -> JSONResponse:
+) -> dict:
     """
     特定の項目だけ再生成する。Perplexityでの補足情報を保持し、それらを含めて結果を返す。
     """
@@ -249,9 +249,13 @@ def regenerate_summary(
         logging.info(f"アクセスするBlob名: {blob_name}")
 
         # Blobストレージからファイルをダウンロード
-        with open(temp_file_path, "wb") as file:
-            download_stream = blob_client.download_blob()
-            file.write(download_stream.readall())
+        async with httpx.AsyncClient() as client:
+            download_stream = await client.get(blob_client.url)
+            if download_stream.status_code != 200:
+                logging.error(f"Blobダウンロードエラー: {download_stream.status_code} - {download_stream.text}")
+                raise HTTPException(status_code=500, detail="Blobファイルのダウンロードに失敗しました。")
+            with open(temp_file_path, "wb") as file:
+                file.write(download_stream.content)
 
         # Word文書を読み込み、段落を結合
         doc = Document(temp_file_path)
@@ -260,7 +264,7 @@ def regenerate_summary(
         # デフォルトクエリ
         default_queries = {
             "current_situation": "業界の現状を説明してください。",
-            "future_outlook": "業界の将来性や抱えている課題を説明してください。",
+            "future_outlook": f"業界の将来性や抱えている課題を説明してください。",
             "investment_advantages": f"業界の競合情報および{company_name}の差別化要因を教えてください。",
             "investment_disadvantages": f"{company_name}のExit先はどのような相手が有力でしょうか？",
             "swot_analysis": f"{company_name}のSWOT分析をお願いします。",
@@ -275,13 +279,13 @@ def regenerate_summary(
 
         # 初回要約: ChatGPT
         try:
-            chatgpt_response = openai.ChatCompletion.acreate(
+            chatgpt_response = await openai.ChatCompletion.acreate(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "user", "content": f"{text}\n\n質問: {query}\n500字以内で要約してください。"}
                 ],
             )
-            chatgpt_summary = chatgpt_response.choices[0].message.content.strip()
+            chatgpt_summary = chatgpt_response.choices[0].message['content'].strip()
             logging.info(f"ChatGPT初回要約結果: {chatgpt_summary}")
         except Exception as e:
             logging.error(f"ChatGPT初回要約エラー: {e}")
@@ -291,13 +295,13 @@ def regenerate_summary(
         if include_perplexity and perplexity_summary:
             combined_text = f"ChatGPTによる要約:\n{chatgpt_summary}\n\nPerplexityによる補足情報:\n{perplexity_summary}"
             try:
-                final_summary_response = openai.ChatCompletion.acreate(
+                final_summary_response = await openai.ChatCompletion.acreate(
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
                     ],
                 )
-                final_summary = final_summary_response.choices[0].message.content.strip()
+                final_summary = final_summary_response.choices[0].message['content'].strip()
                 logging.info(f"統合要約結果: {final_summary}")
             except Exception as e:
                 logging.error(f"統合要約エラー: {e}")
@@ -310,14 +314,12 @@ def regenerate_summary(
         os.remove(temp_file_path)
 
         # 結果をまとめて返却
-        return JSONResponse(
-            content={
-                "query_key": query_key,
-                "chatgpt_summary": chatgpt_summary,
-                "perplexity_summary": perplexity_summary if include_perplexity else None,
-                "final_summary": final_summary,
-            }
-        )
+        return {
+            "query_key": query_key,
+            "chatgpt_summary": chatgpt_summary,
+            "perplexity_summary": perplexity_summary if include_perplexity else None,
+            "final_summary": final_summary,
+        }
     except HTTPException as e:
         logging.error(f"再要約処理中のHTTPエラー: {e.detail}")
         raise e
