@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO)
 @app.post("/summarize")
 async def summary_endpoint(request: dict):
     """
-    Blobストレージ -> 要約生成 (任意でPerplexity補足情報と統合要約を実行)
+    Blobストレージ -> 要約生成 (任意でPerplexity補足情報と統合要約を実行
     """
     try:
         def normalize_text(text: str) -> str:
