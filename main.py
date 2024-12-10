@@ -10,6 +10,8 @@ from services.valuation import calculate_valuation
 from typing import Optional
 import logging
 import unicodedata
+import os
+import uvicorn
 import httpx
 from services.summarize import (
     download_blob_to_temp_file,
@@ -17,8 +19,14 @@ from services.summarize import (
     regenerate_summary,
 )
 
+
+
 app = FastAPI()
 
+#port指定
+if __name__ == "__main__":
+    port = int(os.getenv("WEBSITES_PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 #通信設定
 origins = [

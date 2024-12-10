@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from azure.storage.blob import BlobServiceClient
 from azure.storage.blob.aio import BlobServiceClient
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional, Dict
 from models.model import RegenerateRequest
 import pymysql
 import os
@@ -268,6 +268,7 @@ async def regenerate_summary(
     """
     特定の項目だけ再生成する。Perplexityでの補足情報を保持し、それらを含めて結果を返す。
     """
+    temp_file_path = None  # 初期化
     try:
         # Blobサービスクライアントの初期化（非同期クライアント）
         blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
@@ -278,6 +279,7 @@ async def regenerate_summary(
         else:
             blob_name = f"{category_name}.docx"  # 小分類に .docx を付け加えたファイル名
         
+        # 一時ファイルの作成
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
         temp_file_path = temp_file.name
         temp_file.close()
@@ -354,13 +356,13 @@ async def regenerate_summary(
             # Perplexity要約がない場合、ChatGPTの要約をそのまま最終要約とする
             final_summary = chatgpt_summary
 
-            
     finally:
         # 一時ファイルの削除
-        try:
-            os.remove(temp_file_path)
-        except Exception as e:
-            logging.warning(f"一時ファイルの削除に失敗しました: {e}")
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                logging.warning(f"一時ファイルの削除に失敗しました: {e}")
 
     # 結果をまとめて返却
     return {
