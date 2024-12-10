@@ -35,6 +35,8 @@ app.add_middleware(
 
 logging.basicConfig(level=logging.INFO)
 
+        
+
 @app.post("/summarize")
 async def summary_endpoint(request: dict):
     """
@@ -232,3 +234,5 @@ async def user_regenerate(request: dict):
         )
     
     return {"status": "success", "final_summary": final_summary_data["final_summary"]}
+
+
