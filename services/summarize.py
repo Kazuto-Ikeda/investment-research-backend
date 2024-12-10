@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from docx import Document
 from dotenv import load_dotenv
 from azure.storage.blob import BlobServiceClient
+from azure.storage.blob.aio import BlobServiceClient
 from pydantic import BaseModel
 from typing import List, Optional
 from models.model import RegenerateRequest
@@ -100,31 +101,47 @@ BLOB_CONTAINER_NAME = os.getenv("BLOB_CONTAINER_NAME")
         
 
 
-def download_blob_to_temp_file(category: str, company_name: str,) -> str:
+async def download_blob_to_temp_file(category: str, company_name: str) -> str:
     """
     Blobストレージからファイルをダウンロードし、一時ファイルとして保存。
     小分類名に基づいて .docx ファイルを検索します。
     """
-    blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
-    blob_name = f"{category}.docx"  # 小分類に .docx を付け加えたファイル名
-    temp_file_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
-    text = ""
-    
     try:
+        # 非同期Blobサービスクライアントの初期化
+        blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        
+        # categoryにすでに.docxが含まれているか確認
+        if category.lower().endswith(".docx"):
+            blob_name = category
+        else:
+            blob_name = f"{category}.docx"
+        
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        temp_file_path = temp_file.name
+        temp_file.close()
+        text = ""
+
         # Blobクライアントを取得
         blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
         logging.info(f"アクセスするBlob名: {blob_name}")
 
-        # Blobストレージからファイルをダウンロード
-        with open(temp_file_path, "wb") as file:
-            download_stream = blob_client.download_blob()
-            file.write(download_stream.readall())
+        # Blobストレージからファイルを非同期にダウンロード
+        try:
+            download_stream = await blob_client.download_blob()
+            data = await download_stream.readall()
+            with open(temp_file_path, "wb") as file:
+                file.write(data)
+        except Exception as e:
+            logging.error(f"Blobダウンロードエラー: {e}")
+            raise HTTPException(status_code=500, detail="Blobファイルのダウンロードに失敗しました。")
 
         # Word文書を読み込み、段落を結合
-        doc = Document(temp_file_path)
-        text = ""
-        for paragraph in doc.paragraphs:
-            text += paragraph.text + "\n"
+        try:
+            doc = Document(temp_file_path)
+            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        except Exception as e:
+            logging.error(f"Word文書の読み込みエラー: {e}")
+            raise HTTPException(status_code=500, detail="Word文書の読み込みに失敗しました。")
 
         # 要約対象のクエリ
         queries = {
@@ -142,14 +159,14 @@ def download_blob_to_temp_file(category: str, company_name: str,) -> str:
         # 各クエリについて処理
         for key, query in queries.items():
             try:
-                # 1工程目: 初回ChatGPT要約
-                chatgpt_response = client.chat.completions.create(
+                # 初回要約: ChatGPT
+                chatgpt_response = await openai.ChatCompletion.acreate(
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "user", "content": f"{text}\n\n質問: {query}\n500字以内で要約してください。"}
-                    ]
+                    ],
                 )
-                chatgpt_summary = chatgpt_response.choices[0].message.content.strip()
+                chatgpt_summary = chatgpt_response.choices[0].message['content'].strip()
                 logging.info(f"{key}のChatGPT初回要約結果: {chatgpt_summary}")
             except Exception as e:
                 logging.error(f"ChatGPT初回要約エラー: {e}")
@@ -160,12 +177,14 @@ def download_blob_to_temp_file(category: str, company_name: str,) -> str:
                 "chatgpt_summary": chatgpt_summary,
             }
 
-        return summaries
+        # 一時ファイルの削除
+    finally:
+        try:
+            os.remove(temp_file_path)
+        except Exception as e:
+            logging.warning(f"一時ファイルの削除に失敗しました: {e}")
 
-    except Exception as e:
-        logging.error(f"Blobストレージまたは要約処理中のエラー: {e}")
-        raise HTTPException(status_code=500, detail="エラーが発生しました。再試行してください。")
-
+    return summaries
 
 async def unison_summary_logic(query_key: str, company_name: str, industry: str, chatgpt_summary: str) -> str:
     """
@@ -173,7 +192,7 @@ async def unison_summary_logic(query_key: str, company_name: str, industry: str,
     """
     try:
         # Perplexityで補足情報を取得
-        perplexity_summary = get_perplexity_summary(
+        perplexity_summary = await get_perplexity_summary(
             query_key=query_key,
             company_name=company_name,
             industry=industry
@@ -187,13 +206,13 @@ async def unison_summary_logic(query_key: str, company_name: str, industry: str,
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
-            ]
+            ],
         )
-        final_summary = final_summary_response.choices[0].message.content.strip()
+        final_summary = final_summary_response.choices[0].message['content'].strip()
         return final_summary
     except Exception as e:
         logging.error(f"統合要約エラー: {e}")
-        return "統合要約エラーが発生しました。"
+        return "統合要約エラーが発生しました。"    
 
 async def get_perplexity_summary(query_key: str, company_name: str, industry: str) -> str:
     """
@@ -209,7 +228,7 @@ async def get_perplexity_summary(query_key: str, company_name: str, industry: st
             "company_name": company_name,
             "industry": industry
         }
-        with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient() as client:
             response = await client.post(PERPLEXITY_API_ENDPOINT, headers=headers, json=payload)
         
         if response.status_code != 200:
@@ -223,6 +242,7 @@ async def get_perplexity_summary(query_key: str, company_name: str, industry: st
     except Exception as e:
         logging.error(f"Perplexity API呼び出し中のエラー: {e}")
         return "Perplexityによる補足情報の取得中にエラーが発生しました。"
+        
 
 async def regenerate_summary(
     category_name: str,
@@ -236,9 +256,15 @@ async def regenerate_summary(
     特定の項目だけ再生成する。Perplexityでの補足情報を保持し、それらを含めて結果を返す。
     """
     try:
-        # Blobサービスクライアントの初期化
+        # Blobサービスクライアントの初期化（非同期クライアント）
         blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
-        blob_name = f"{category_name}.docx"  # 小分類に .docx を付け加えたファイル名
+        
+        # category_name に .docx が含まれていないことを確認
+        if category_name.lower().endswith(".docx"):
+            blob_name = category_name
+        else:
+            blob_name = f"{category_name}.docx"  # 小分類に .docx を付け加えたファイル名
+        
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
         temp_file_path = temp_file.name
         temp_file.close()
@@ -248,18 +274,23 @@ async def regenerate_summary(
         blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
         logging.info(f"アクセスするBlob名: {blob_name}")
 
-        # Blobストレージからファイルをダウンロード
-        async with httpx.AsyncClient() as client:
-            download_stream = await client.get(blob_client.url)
-            if download_stream.status_code != 200:
-                logging.error(f"Blobダウンロードエラー: {download_stream.status_code} - {download_stream.text}")
-                raise HTTPException(status_code=500, detail="Blobファイルのダウンロードに失敗しました。")
+        # Blobストレージからファイルを非同期にダウンロード
+        try:
+            download_stream = await blob_client.download_blob()
+            data = await download_stream.readall()
             with open(temp_file_path, "wb") as file:
-                file.write(download_stream.content)
+                file.write(data)
+        except Exception as e:
+            logging.error(f"Blobダウンロードエラー: {e}")
+            raise HTTPException(status_code=500, detail="Blobファイルのダウンロードに失敗しました。")
 
         # Word文書を読み込み、段落を結合
-        doc = Document(temp_file_path)
-        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        try:
+            doc = Document(temp_file_path)
+            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        except Exception as e:
+            logging.error(f"Word文書の読み込みエラー: {e}")
+            raise HTTPException(status_code=500, detail="Word文書の読み込みに失敗しました。")
 
         # デフォルトクエリ
         default_queries = {
@@ -310,22 +341,18 @@ async def regenerate_summary(
             # Perplexity要約がない場合、ChatGPTの要約をそのまま最終要約とする
             final_summary = chatgpt_summary
 
+            
+    finally:
         # 一時ファイルの削除
-        os.remove(temp_file_path)
+        try:
+            os.remove(temp_file_path)
+        except Exception as e:
+            logging.warning(f"一時ファイルの削除に失敗しました: {e}")
 
-        # 結果をまとめて返却
-        return {
-            "query_key": query_key,
-            "chatgpt_summary": chatgpt_summary,
-            "perplexity_summary": perplexity_summary if include_perplexity else None,
-            "final_summary": final_summary,
-        }
-    except HTTPException as e:
-        logging.error(f"再要約処理中のHTTPエラー: {e.detail}")
-        raise e
-    except Exception as e:
-        logging.error(f"再要約処理中の予期しないエラー: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="再要約処理中にエラーが発生しました。"
-        )
+    # 結果をまとめて返却
+    return {
+        "query_key": query_key,
+        "chatgpt_summary": chatgpt_summary,
+        "perplexity_summary": perplexity_summary if include_perplexity else None,
+        "final_summary": final_summary,
+    }

@@ -49,7 +49,6 @@ async def summary_endpoint(request: dict):
         industry = request.get("industry")
         sector = request.get("sector")
         category = request.get("category")
-        blob_name = normalize_text(category) + ".docx"  # 小分類に .docx を追加
         company_name = request.get("company_name")
         include_perplexity = request.get("include_perplexity", False)  # デフォルトはFalse
 
@@ -73,7 +72,7 @@ async def summary_endpoint(request: dict):
 
         # Blobストレージからファイルをダウンロードし、要約を生成
         try:
-            summaries = download_blob_to_temp_file(
+            summaries = await download_blob_to_temp_file(
                 category=category,
                 company_name=company_name,
             )
@@ -98,8 +97,8 @@ async def summary_endpoint(request: dict):
         raise HTTPException(
             status_code=500,
             detail="エンドポイント全体の処理中にエラーが発生しました。"
-        )        
-
+        )
+        
 @app.post("/summarize/perplexity")
 async def unison_summary(request: dict):
     """
@@ -127,7 +126,7 @@ async def unison_summary(request: dict):
     except Exception as e:
         logging.error(f"エンドポイント処理中のエラー: {e}")
         raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")
-
+    
 
 @app.post("/valuation", response_model=ValuationOutput)
 async def valuation_endpoint(request: ValuationInput):
@@ -164,33 +163,50 @@ async def export_endpoint(
 
 @app.post("/regenerate-summary")
 async def user_regenerate(request: dict):
+    """
+    /regenerate-summary エンドポイント
+    """
     try:
-        def normalize_text(text: str) -> str:
+        def normalize_text(text: Optional[str]) -> str:
+            """文字列をNFCで正規化"""
+            if not text:
+                raise ValueError("正規化対象のテキストがNoneです。")
             return unicodedata.normalize('NFC', text)
 
         # リクエストデータの取得とバリデーション
         industry = request.get("industry")
         sector = request.get("sector")
         category = request.get("category")
-        blob_name = normalize_text(category) + ".docx"  # 小分類に .docx を追加
         company_name = request.get("company_name")
         include_perplexity = request.get("include_perplexity", False)  # デフォルトはFalse
         query_key = request.get("query_key")
         custom_query = request.get("custom_query")
         perplexity_summary = request.get("perplexity_summary")
         
-        # 必須フィールドのチェック
+        # 必須フィールドのバリデーション
         if not all([industry, sector, category, company_name, query_key]):
-            raise HTTPException(status_code=400, detail="必要なフィールドが不足しています。")
-            
-    except HTTPException as e:
-        logging.error(f"再要約処理中のエラー: {e.detail}")
-        raise e
+            missing_fields = [field for field in ["industry", "sector", "category", "company_name", "query_key"]
+                              if request.get(field) is None]
+            logging.error(f"リクエストに不足しているフィールド: {missing_fields}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"必要なフィールドが不足しています: {', '.join(missing_fields)}"
+            )
+
+        # 正規化処理
+        blob_name = normalize_text(category) + ".docx"
+
+    except ValueError as ve:
+        logging.error(f"値エラー: {ve}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException as he:
+        logging.error(f"HTTPエラー: {he.detail}")
+        raise he
     except Exception as e:
         logging.error(f"エンドポイント処理中の予期しないエラー: {e}")
         raise HTTPException(
             status_code=500,
-            detail="エンドポイント処理中にエラーが発生しました。"
+            detail="エンドポイント処理中に予期しないエラーが発生しました。"
         )
     
     # regenerate_summary を await して呼び出す
@@ -203,78 +219,5 @@ async def user_regenerate(request: dict):
         include_perplexity=include_perplexity
     )
     
-    return {"status": "success", "final_summary": final_summary_data["final_summary"]}    
+    return {"status": "success", "final_summary": final_summary_data["final_summary"]}
 
-
-@app.post("/")
-async def api_test():
-    return print("Hello, world!")
-
-
-# @app.post("/summarize")
-# async def summary_endpoint(request: dict):
-#     """
-#     Blobストレージ -> 要約生成 (任意でPerplexity補足情報と統合要約を実行)
-#     """
-#     try:
-#         def normalize_text(text) -> str:
-#             """文字列をNFCで正規化"""
-#             return unicodedata.normalize('NFC', text)
-
-#         # リクエストデータの取得とバリデーション
-#         industry = request.get("industry")
-#         sector = request.get("sector")
-#         category = request.get("category")
-#         blob_name = normalize_text(category) + ".docx"  # 小分類に .docx を追加
-#         company_name = request.get("company_name")
-#         include_perplexity = request.get("include_perplexity", False)  # デフォルトはFalse
-
-#         # 必須フィールドのチェック
-#         missing_fields = []
-#         if not industry:
-#             missing_fields.append("industry")
-#         if not sector:
-#             missing_fields.append("sector")
-#         if not category:
-#             missing_fields.append("category")
-#         if not company_name:
-#             missing_fields.append("company_name")
-
-#         if missing_fields:
-#             logging.error(f"リクエストに不足しているフィールド: {missing_fields}")
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=f"必要なフィールドが不足しています: {', '.join(missing_fields)}"
-#             )
-
-#         # Blobストレージからファイルをダウンロードし、要約を生成
-#         try:
-#             summaries = download_blob_to_temp_file(
-#                 category=category,
-#                 company_name=company_name,
-#                 industry=industry,
-#                 include_perplexity=include_perplexity,
-#                 query="業界の現状は？"
-#             )
-#         except HTTPException as e:
-#             logging.error(f"Blobストレージまたは要約処理中のエラー: {e.detail}")
-#             raise e
-#         except Exception as e:
-#             logging.error(f"エンドポイント処理中の予期しないエラー: {e}")
-#             raise HTTPException(
-#                 status_code=500,
-#                 detail="エンドポイント処理中にエラーが発生しました。"
-#             )
-
-#         # 結果を返す
-#         return {"summaries": summaries}
-
-#     except HTTPException as e:
-#         logging.error(f"HTTPエラー: {e.detail}")
-#         raise e
-#     except Exception as e:
-#         logging.error(f"エンドポイント全体の予期しないエラー: {e}")
-#         raise HTTPException(
-#             status_code=500,
-#             detail="エンドポイント全体の処理中にエラーが発生しました。"
-#         )
