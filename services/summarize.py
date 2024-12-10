@@ -16,7 +16,7 @@ import openai
 import requests
 import tempfile
 
-# ロギング設定
+# ロギング設
 logging.basicConfig(level=logging.INFO)
 
 
