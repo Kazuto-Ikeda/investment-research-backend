@@ -9,6 +9,7 @@ from services.word_export import generate_word_file
 from services.valuation import calculate_valuation
 from typing import Optional
 import logging
+import sys
 import unicodedata
 import os
 import uvicorn
@@ -41,7 +42,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-logging.basicConfig(level=logging.INFO)
+# ログの設定
+logger = logging.getLogger("investment-backend")
+logger.setLevel(logging.INFO)
+
+# ストリームハンドラーを追加（標準出力）
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+
+# ログフォーマットを設定
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+# ハンドラーをロガーに追加
+logger.addHandler(handler)
 
         
 

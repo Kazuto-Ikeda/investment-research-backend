@@ -13,7 +13,6 @@ import os
 import logging
 import httpx
 import openai
-import uvicorn
 import requests
 import tempfile
 
