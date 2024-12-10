@@ -38,7 +38,7 @@ logging.basicConfig(level=logging.INFO)
 @app.post("/summarize")
 async def summary_endpoint(request: dict):
     """
-    Blobストレージ -> 要約生成 (任意でPerplexity補足情報と統合要約を実行
+    Blobストレージ -> 要約生成 (任意でPerplexity補足情報と統合要約を実行)
     """
     try:
         def normalize_text(text: str) -> str:
@@ -99,6 +99,7 @@ async def summary_endpoint(request: dict):
             detail="エンドポイント全体の処理中にエラーが発生しました。"
         )
         
+                
 @app.post("/summarize/perplexity")
 async def unison_summary(request: dict):
     """
@@ -125,8 +126,7 @@ async def unison_summary(request: dict):
         raise he
     except Exception as e:
         logging.error(f"エンドポイント処理中のエラー: {e}")
-        raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")
-    
+        raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")    
 
 @app.post("/valuation", response_model=ValuationOutput)
 async def valuation_endpoint(request: ValuationInput):
@@ -160,6 +160,7 @@ async def export_endpoint(
     return generate_word_file(
         background_tasks, summaries, valuation_data, company_name, file_name
     )
+    
 
 @app.post("/regenerate-summary")
 async def user_regenerate(request: dict):
@@ -194,7 +195,8 @@ async def user_regenerate(request: dict):
             )
 
         # 正規化処理
-        blob_name = normalize_text(category) + ".docx"
+        # Note: `regenerate_summary` 関数内で Blob 名を処理するため、エンドポイント側で `blob_name` を設定する必要はありません
+        normalized_category = normalize_text(category)
 
     except ValueError as ve:
         logging.error(f"値エラー: {ve}")
@@ -210,14 +212,23 @@ async def user_regenerate(request: dict):
         )
     
     # regenerate_summary を await して呼び出す
-    final_summary_data = await regenerate_summary(
-        category_name=category,
-        company_name=company_name,
-        query_key=query_key,
-        perplexity_summary=perplexity_summary,
-        custom_query=custom_query,
-        include_perplexity=include_perplexity
-    )
+    try:
+        final_summary_data = await regenerate_summary(
+            category_name=category,
+            company_name=company_name,
+            query_key=query_key,
+            perplexity_summary=perplexity_summary,
+            custom_query=custom_query,
+            include_perplexity=include_perplexity
+        )
+    except HTTPException as he:
+        logging.error(f"regenerate_summary 内でのHTTPエラー: {he.detail}")
+        raise he
+    except Exception as e:
+        logging.error(f"regenerate_summary 内での予期しないエラー: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="regenerate_summary 処理中にエラーが発生しました。"
+        )
     
     return {"status": "success", "final_summary": final_summary_data["final_summary"]}
-

@@ -101,11 +101,13 @@ BLOB_CONTAINER_NAME = os.getenv("BLOB_CONTAINER_NAME")
         
 
 
-async def download_blob_to_temp_file(category: str, company_name: str) -> str:
+async def download_blob_to_temp_file(category: str, company_name: str) -> Dict[str, str]:
     """
     Blobストレージからファイルをダウンロードし、一時ファイルとして保存。
     小分類名に基づいて .docx ファイルを検索します。
+    要約を生成して返します。
     """
+    temp_file_path = None  # 初期化
     try:
         # 非同期Blobサービスクライアントの初期化
         blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
@@ -177,15 +179,19 @@ async def download_blob_to_temp_file(category: str, company_name: str) -> str:
                 "chatgpt_summary": chatgpt_summary,
             }
 
-        # 一時ファイルの削除
+        return summaries
+
+    except Exception as e:
+        logging.error(f"Blobストレージまたは要約処理中のエラー: {e}")
+        raise HTTPException(status_code=500, detail="エラーが発生しました。再試行してください。")
     finally:
-        try:
-            os.remove(temp_file_path)
-        except Exception as e:
-            logging.warning(f"一時ファイルの削除に失敗しました: {e}")
-
-    return summaries
-
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                logging.warning(f"一時ファイルの削除に失敗しました: {e}")
+                
+                
 async def unison_summary_logic(query_key: str, company_name: str, industry: str, chatgpt_summary: str) -> str:
     """
     Perplexityと統合要約を処理
@@ -202,18 +208,25 @@ async def unison_summary_logic(query_key: str, company_name: str, industry: str,
         combined_text = f"ChatGPTによる要約:\n{chatgpt_summary}\n\nPerplexityによる補足情報:\n{perplexity_summary}"
         
         # OpenAI APIを用いて統合要約を生成
-        final_summary_response = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
-            ],
-        )
-        final_summary = final_summary_response.choices[0].message['content'].strip()
+        try:
+            final_summary_response = await openai.ChatCompletion.acreate(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "user", "content": f"{combined_text}\n\n以上を基に、統合要約を500字以内でお願いします。"}
+                ],
+            )
+            final_summary = final_summary_response.choices[0].message['content'].strip()
+            logging.info(f"統合要約結果: {final_summary}")
+        except Exception as e:
+            logging.error(f"統合要約エラー: {e}")
+            final_summary = "統合要約エラーが発生しました。"
+
         return final_summary
     except Exception as e:
         logging.error(f"統合要約エラー: {e}")
-        return "統合要約エラーが発生しました。"    
-
+        return "統合要約エラーが発生しました。"
+    
+    
 async def get_perplexity_summary(query_key: str, company_name: str, industry: str) -> str:
     """
     Perplexity APIを呼び出して補足情報を取得
