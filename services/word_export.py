@@ -21,7 +21,7 @@ def generate_word_file(
     file_name: str = Query(None, description="生成するWordファイル名 (省略可能)")
 ):
     """
-    受け取った要約データおよびバリュエーションデータをWordドキュメントに保存
+    受け取った要約データおよびバリュエーションデータをWordドキュメントへ
     """
     # 動的ファイル名の設定
     file_name = file_name or f"{company_name}_summary_report.docx"
