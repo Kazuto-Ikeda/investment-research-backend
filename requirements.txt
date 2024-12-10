@@ -8,3 +8,5 @@ numpy==1.21.6
 pymysql==1.1.1
 openai==1.55.3
 azure-storage-blob
+httpx
+aiohttp
