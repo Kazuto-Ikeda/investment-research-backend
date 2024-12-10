@@ -23,10 +23,10 @@ from services.summarize import (
 
 app = FastAPI()
 
-#port指定
-if __name__ == "__main__":
-    port = int(os.getenv("WEBSITES_PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+# #port指定
+# if __name__ == "__main__":
+#     port = int(os.getenv("WEBSITES_PORT", 8000))
+#     uvicorn.run(app, host="0.0.0.0", port=port)
 
 #通信設定
 origins = [

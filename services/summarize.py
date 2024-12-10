@@ -2,8 +2,9 @@ from fastapi import HTTPException, Query
 from fastapi.responses import JSONResponse
 from docx import Document
 from dotenv import load_dotenv
-from azure.storage.blob import BlobServiceClient
-from azure.storage.blob.aio import BlobServiceClient
+# from azure.storage.blob import BlobServiceClient
+# from azure.storage.blob.aio import BlobServiceClient
+from azure.storage.blob.aio import BlobServiceClient as AsyncBlobServiceClient
 from pydantic import BaseModel
 from typing import Optional, Dict
 from models.model import RegenerateRequest
@@ -12,7 +13,6 @@ import os
 import logging
 import httpx
 import openai
-from openai import OpenAI
 import uvicorn
 import requests
 import tempfile
