@@ -8,12 +8,12 @@ from azure.storage.blob.aio import BlobServiceClient as AsyncBlobServiceClient
 from pydantic import BaseModel
 from typing import Optional, Dict
 from models.model import RegenerateRequest
-import pymysql
+# import pymysql
 import os
 import logging
 import httpx
 import openai
-import requests
+# import requests
 import tempfile
 
 # ロギング設
@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 load_dotenv()
 
 # APIキーの取得
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 PERPLEXITY_API_ENDPOINT = os.getenv("PERPLEXITY_API_ENDPOINT")
 
@@ -109,7 +109,8 @@ async def download_blob_to_temp_file(category: str, company_name: str) -> Dict[s
     temp_file_path = None  # 初期化
     try:
         # 非同期Blobサービスクライアントの初期化
-        blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        # blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        blob_service_client = AsyncBlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
         
         # categoryにすでに.docxが含まれているか確認
         if category.lower().endswith(".docx"):
@@ -169,7 +170,7 @@ async def download_blob_to_temp_file(category: str, company_name: str) -> Dict[s
                 )
                 chatgpt_summary = chatgpt_response.choices[0].message['content'].strip()
                 logging.info(f"{key}のChatGPT初回要約結果: {chatgpt_summary}")
-            except Exception as e:
+            except OpenAIError as e:
                 logging.error(f"ChatGPT初回要約エラー: {e}")
                 chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
 
@@ -216,7 +217,7 @@ async def unison_summary_logic(query_key: str, company_name: str, industry: str,
             )
             final_summary = final_summary_response.choices[0].message['content'].strip()
             logging.info(f"統合要約結果: {final_summary}")
-        except Exception as e:
+        except OpenAIError as e:
             logging.error(f"統合要約エラー: {e}")
             final_summary = "統合要約エラーが発生しました。"
 
@@ -270,7 +271,7 @@ async def regenerate_summary(
     temp_file_path = None  # 初期化
     try:
         # Blobサービスクライアントの初期化（非同期クライアント）
-        blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        blob_service_client = AsyncBlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
         
         # category_name に .docx が含まれていないことを確認
         if category_name.lower().endswith(".docx"):
@@ -348,7 +349,7 @@ async def regenerate_summary(
                 )
                 final_summary = final_summary_response.choices[0].message['content'].strip()
                 logging.info(f"統合要約結果: {final_summary}")
-            except Exception as e:
+            except OpenAIError as e:
                 logging.error(f"統合要約エラー: {e}")
                 final_summary = "統合要約エラーが発生しました。"
         else:
