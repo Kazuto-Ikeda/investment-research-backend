@@ -1,11 +1,13 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Body
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
-from models.model import RegenerateRequest
-from models.model import ValuationInput, ValuationOutput
-from services import summarize
-from services import valuation
+from models.model import ValuationInput, ValuationOutput, RegenerateRequest
+from services.summarize import download_blob_to_temp_file
+from services.summarize import unison_summary_logic
+from services.summarize import get_perplexity_summary
+from services.summarize import regenerate_summary
 from services.word_export import generate_word_file
+
 from services.valuation import calculate_valuation
 from typing import Optional
 import logging
@@ -58,6 +60,16 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
         
+# ミドルウェアでリクエストをログに記録
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"Received request: {request.method} {request.url}")
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        logger.error(f"Error processing request: {e}")
+        raise e
 
 @app.post("/summarize")
 async def summary_endpoint(request: dict):
