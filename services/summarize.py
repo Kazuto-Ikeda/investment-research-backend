@@ -371,3 +371,116 @@ async def regenerate_summary(
         "perplexity_summary": perplexity_summary if include_perplexity else None,
         "final_summary": final_summary,
     }
+
+
+async def summary_from_speeda(category: str,prompt: str):
+    """
+    Blobストレージからファイルをダウンロードし、一時ファイルとして保存。
+    小分類名に基づいて .docx ファイルを検索します。
+    要約を生成して返します。
+    """
+    temp_file_path = None  # 初期化
+    try:
+        # 非同期Blobサービスクライアントの初期化
+        # blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        blob_service_client = AsyncBlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        
+        # categoryにすでに.docxが含まれているか確認
+        if category.lower().endswith(".docx"):
+            blob_name = category
+        else:
+            blob_name = f"{category}.docx"
+        
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        temp_file_path = temp_file.name
+        temp_file.close()
+        text = ""
+
+        # Blobクライアントを取得
+        blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
+        logging.info(f"アクセスするBlob名: {blob_name}")
+
+        # Blobストレージからファイルを非同期にダウンロード
+        try:
+            download_stream = await blob_client.download_blob()
+            data = await download_stream.readall()
+            with open(temp_file_path, "wb") as file:
+                file.write(data)
+        except Exception as e:
+            logging.error(f"Blobダウンロードエラー: {e}")
+            raise HTTPException(status_code=500, detail="Blobファイルのダウンロードに失敗しました。")
+
+        # Word文書を読み込み、段落を結合
+        try:
+            doc = Document(temp_file_path)
+            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        except Exception as e:
+            logging.error(f"Word文書の読み込みエラー: {e}")
+            raise HTTPException(status_code=500, detail="Word文書の読み込みに失敗しました。")
+    
+        try:
+            # 初回要約: ChatGPT
+            chatgpt_response = await openai.ChatCompletion.acreate(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "あなたは優秀な投資家であり、市場調査の専門家です。"},
+                    {"role": "user", "content": f"{text}\n\n質問: {prompt}\n500字以内で要約してください。"}
+                ],
+            )
+            chatgpt_summary = chatgpt_response.choices[0].message['content'].strip()
+            logging.info(f"{prompt}のChatGPT要約結果: {chatgpt_summary}")
+        except OpenAIError as e:
+            logging.error(f"ChatGPT初回要約エラー: {e}")
+            chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
+
+        return chatgpt_summary
+
+    except Exception as e:
+        logging.error(f"Blobストレージまたは要約処理中のエラー: {e}")
+        raise HTTPException(status_code=500, detail="エラーが発生しました。再試行してください。")
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                logging.warning(f"一時ファイルの削除に失敗しました: {e}")
+
+
+def perplexity_search(prompt: str) -> str:
+    """
+    Perplexity APIを呼び出して補足情報を取得
+    """
+    try:
+        headers = {
+            "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama-3.1-sonar-small-128k-online",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "あなたは優秀な投資家です。"
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ], 
+            "temperature": 0
+            }
+
+        response = requests.request("POST", PERPLEXITY_API_ENDPOINT, json=payload, headers=headers)
+        print(response)
+
+        if response.status_code != 200:
+            logging.error(f"Perplexity APIエラー: {response.status_code} - {response.text}")
+            return "Perplexityによる補足情報の取得に失敗しました。"
+        
+        # レスポンス形式に応じて適切に要約を取得
+        data = response.json()
+        perplexity_summary = data["choices"][0]["message"]["content"]  # 修正箇所
+        return perplexity_summary
+    except Exception as e:
+        logging.error(f"Perplexity API呼び出し中のエラー: {e}")
+        return "Perplexityによる補足情報の取得中にエラーが発生しました。"

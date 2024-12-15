@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
-from models.model import ValuationInput, ValuationOutput, RegenerateRequest
+from models.model import ValuationInput, ValuationOutput, SpeedaInput,PerplexityInput
 from services.summarize import download_blob_to_temp_file
 from services.summarize import unison_summary_logic
 from services.summarize import get_perplexity_summary
@@ -18,9 +18,8 @@ import os
 import uvicorn
 import httpx
 from services.summarize import (
-    download_blob_to_temp_file,
-    unison_summary_logic,
-    regenerate_summary,
+    summary_from_speeda,
+    perplexity_search,
 )
 
 
@@ -137,34 +136,58 @@ async def summary_endpoint(request: dict):
         )
         
                 
+@app.post("/summarize/speeda")
+async def summary_speeda(request: SpeedaInput):
+    """
+    Blobストレージ -> 要約生成
+    """
+    try:
+        def normalize_text(text: str) -> str:
+            """文字列をNFCで正規化"""
+            return unicodedata.normalize('NFC', text)
+
+        # Blobストレージからファイルをダウンロードし、要約を生成
+        try:
+            summary = await summary_from_speeda(
+                category=request.category,
+                prompt=request.prompt)
+        except HTTPException as e:
+            logging.error(f"Blobストレージまたは要約処理中のエラー: {e.detail}")
+            raise e
+        except Exception as e:
+            logging.error(f"エンドポイント処理中の予期しないエラー: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="エンドポイント処理中にエラーが発生しました。"
+            )
+
+        # 結果を返す
+        return JSONResponse(content={request.query_type:summary}, status_code=200)
+
+    except HTTPException as e:
+        logging.error(f"HTTPエラー: {e.detail}")
+        raise e
+    except Exception as e:
+        logging.error(f"エンドポイント全体の予期しないエラー: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="エンドポイント全体の処理中にエラーが発生しました。"
+        )
+
 @app.post("/summarize/perplexity")
-async def unison_summary(request: dict):
+async def unison_summary(request: PerplexityInput):
     """
     2工程目と3工程目: Perplexityと統合要約
     """
     try:
-        query_key = request.get("query_key")
-        company_name = request.get("company_name")
-        industry = request.get("industry")
-        chatgpt_summary = request.get("chatgpt_summary")  # 初回要約を入力
-
-        if not query_key or not company_name or not industry or not chatgpt_summary:
-            raise HTTPException(status_code=400, detail="必要なフィールドが不足しています。")
-
         # Perplexityと統合要約を処理
-        final_summary = await unison_summary_logic(
-            query_key=query_key,
-            company_name=company_name,
-            industry=industry,
-            chatgpt_summary=chatgpt_summary,
+        perplexity_result = perplexity_search(
+            prompt=request.prompt,
         )
-        return {"status": "success", "final_summary": final_summary}
-    except HTTPException as he:
-        raise he
+        return JSONResponse(content={request.query_type:perplexity_result}, status_code=200)
     except Exception as e:
         logging.error(f"エンドポイント処理中のエラー: {e}")
-        raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")    
-
+        raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")   
 # エンドポイント
 @app.post("/valuation", response_model=ValuationOutput)
 async def valuation_endpoint(request: ValuationInput):

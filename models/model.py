@@ -21,6 +21,17 @@ class ValuationInput(BaseModel):
     equity_value_current: float  # 想定Equity Value
     category: str  # レポートカテゴリ
 
+class SpeedaInput(BaseModel):
+    industry: str
+    sector: str
+    category: str
+    prompt: str
+    query_type:str
+
+class PerplexityInput(BaseModel):
+    prompt: str
+    query_type:str
+
 # アウトプットモデル
 class ValuationOutput(BaseModel):
     # 売上
