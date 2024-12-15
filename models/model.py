@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 
 #再生成
 class RegenerateRequest(BaseModel):
@@ -10,7 +10,7 @@ class RegenerateRequest(BaseModel):
     include_perplexity: bool = False
 
 
-# バリュエーション計算
+## バリュエーション計算
 # インプットモデル
 class ValuationInput(BaseModel):
     revenue_current: float  # 売上（直近期）
@@ -50,3 +50,35 @@ class ValuationOutput(BaseModel):
     # Industry Median Multiple
     industry_median_multiple_current: Optional[str] = None  # マルチプル業界中央値（直近実績）
     industry_median_multiple_forecast: Optional[str] = None  # マルチプル業界中央値（進行期見込み）
+    
+
+## word出力モデル
+class SectionSummaries(BaseModel):
+    current_situation: str
+    future_outlook: str
+    investment_advantages: str
+    investment_disadvantages: str
+    value_up: str
+    use_case: str
+    swot_analysis: str
+
+class Summaries(BaseModel):
+    Perplexity: SectionSummaries
+    ChatGPT: SectionSummaries
+
+class ValuationItem(BaseModel):
+    current: str
+    forecast: str
+
+class ValuationData(BaseModel):
+    売上: ValuationItem
+    EBITDA: ValuationItem
+    NetDebt: ValuationItem
+    想定EquityValue: ValuationItem
+    EV: ValuationItem
+    エントリーマルチプル: ValuationItem
+    マルチプル業界中央値: ValuationItem
+
+class WordExportRequest(BaseModel):
+    summaries: Summaries
+    valuation_data: Optional[ValuationData] = None

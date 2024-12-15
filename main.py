@@ -7,6 +7,7 @@ from services.summarize import unison_summary_logic
 from services.summarize import get_perplexity_summary
 from services.summarize import regenerate_summary
 from services.word_export import generate_word_file
+from models.model import WordExportRequest
 
 from services.valuation import calculate_valuation
 from typing import Optional
@@ -189,8 +190,7 @@ async def valuation_endpoint(request: ValuationInput):
 @app.post("/word_export")
 async def export_endpoint(
     background_tasks: BackgroundTasks,
-    summaries: dict = Body(..., description="要約データを含む辞書形式の入力"),
-    valuation_data: Optional[dict] = Body(None, description="バリュエーションデータ"),
+    request: WordExportRequest,
     company_name: str = Query(..., description="会社名を指定"),
     file_name: Optional[str] = Query(None, description="生成するWordファイル名 (省略可能)")
 ):
@@ -198,9 +198,8 @@ async def export_endpoint(
     Wordファイル生成エンドポイント
     """
     return generate_word_file(
-        background_tasks, summaries, valuation_data, company_name, file_name
-    )
-    
+        background_tasks, request.summaries.dict(), request.valuation_data.dict() if request.valuation_data else None, company_name, file_name
+    )    
 
 @app.post("/regenerate-summary")
 async def user_regenerate(request: dict):
