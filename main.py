@@ -164,6 +164,7 @@ async def unison_summary(request: dict):
         logging.error(f"エンドポイント処理中のエラー: {e}")
         raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")    
 
+# エンドポイント
 @app.post("/valuation", response_model=ValuationOutput)
 async def valuation_endpoint(request: ValuationInput):
     """
@@ -171,12 +172,15 @@ async def valuation_endpoint(request: ValuationInput):
     """
     print("Received valuation request:", request)
     try:
-        # 計算を実行
-        valuation_result = calculate_valuation(
+        # 計算を実行（awaitを追加）
+        valuation_result = await calculate_valuation(
             input_data=request
         )
         print("Valuation result:", valuation_result)
         return valuation_result
+    except HTTPException as he:
+        print("HTTPException in valuation endpoint:", he.detail)
+        raise he
     except Exception as e:
         print("Error in valuation endpoint:", e)
         raise HTTPException(status_code=400, detail=str(e))
