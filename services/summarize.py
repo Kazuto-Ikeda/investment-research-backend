@@ -13,7 +13,7 @@ import os
 import logging
 import httpx
 import openai
-# import requests
+import requests
 import tempfile
 
 # ロギング設
