@@ -15,6 +15,7 @@ import httpx
 import openai
 import requests
 import tempfile
+import unicodedata
 
 # ロギング設
 logging.basicConfig(level=logging.INFO)
@@ -372,6 +373,13 @@ async def regenerate_summary(
         "final_summary": final_summary,
     }
 
+# Unicode正規化関数
+def normalize_text(text: str) -> str:
+    """文字列をNFC形式で正規化"""
+    if isinstance(text, str):
+        normalized = unicodedata.normalize('NFC', text)
+        logging.debug(f"Original text: '{text}' | Normalized text: '{normalized}'")
+        return normalized
 
 async def summary_from_speeda(category: str,prompt: str):
     """
@@ -381,22 +389,25 @@ async def summary_from_speeda(category: str,prompt: str):
     """
     temp_file_path = None  # 初期化
     try:
-        # 非同期Blobサービスクライアントの初期化
-        # blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
-        blob_service_client = AsyncBlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        # カテゴリー名の正規化
+        normalized_category = normalize_text(category)
+        logging.info(f"Normalized category name: '{normalized_category}'")
         
         # categoryにすでに.docxが含まれているか確認
-        if category.lower().endswith(".docx"):
-            blob_name = category
+        if normalized_category.lower().endswith(".docx"):
+            blob_name = normalized_category
         else:
-            blob_name = f"{category}.docx"
+            blob_name = f"{normalized_category}.docx"
+
+        logging.info(f"Constructed blob name: '{blob_name}'")
         
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
         temp_file_path = temp_file.name
         temp_file.close()
         text = ""
 
-        # Blobクライアントを取得
+        # 非同期Blobサービスクライアントの初期化
+        blob_service_client = AsyncBlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
         blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
         logging.info(f"アクセスするBlob名: {blob_name}")
 
@@ -406,6 +417,7 @@ async def summary_from_speeda(category: str,prompt: str):
             data = await download_stream.readall()
             with open(temp_file_path, "wb") as file:
                 file.write(data)
+            logging.info(f"Blob '{blob_name}' を一時ファイル '{temp_file_path}' にダウンロードしました。")
         except Exception as e:
             logging.error(f"Blobダウンロードエラー: {e}")
             raise HTTPException(status_code=500, detail="Blobファイルのダウンロードに失敗しました。")
@@ -442,8 +454,10 @@ async def summary_from_speeda(category: str,prompt: str):
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
+                logging.info(f"一時ファイル '{temp_file_path}' を削除しました。")
             except Exception as e:
                 logging.warning(f"一時ファイルの削除に失敗しました: {e}")
+                
 
 
 def perplexity_search(prompt: str) -> str:
