@@ -196,21 +196,21 @@ async def valuation_endpoint(request: ValuationInput):
     """
     バリュエーション計算エンドポイント
     """
-    print("Received valuation request:", request)
+    logging.info(f"Received valuation request: {request}")
     try:
         # 計算を実行（awaitを追加）
         valuation_result = await calculate_valuation(
             input_data=request
         )
-        print("Valuation result:", valuation_result)
+        logging.info(f"Valuation result: {valuation_result}")
         return valuation_result
     except HTTPException as he:
-        print("HTTPException in valuation endpoint:", he.detail)
+        logging.error(f"HTTPException in valuation endpoint: {he.detail}")
         raise he
     except Exception as e:
-        print("Error in valuation endpoint:", e)
+        logging.error(f"Error in valuation endpoint: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    
+            
         
 @app.post("/word_export")
 async def export_endpoint(

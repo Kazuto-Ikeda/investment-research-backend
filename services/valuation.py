@@ -60,7 +60,7 @@ async def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
 
         # 取得したい列名と行名
         target_column = "企業価値/EBITDA"
-        target_row = "平均値"
+        target_row = "中央値"
 
         # 文書内のテーブルを探索
         for table in doc.tables:

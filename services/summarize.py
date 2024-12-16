@@ -373,15 +373,14 @@ async def regenerate_summary(
         "final_summary": final_summary,
     }
 
-# Unicode正規化関数
+# Unicode正規化関数（NFD形式で正規化）
 def normalize_text(text: str) -> str:
-    """文字列をNFC形式で正規化"""
-    if isinstance(text, str):
-        normalized = unicodedata.normalize('NFC', text)
-        logging.debug(f"Original text: '{text}' | Normalized text: '{normalized}'")
-        return normalized
+    """文字列をNFD形式で正規化"""
+    normalized = unicodedata.normalize('NFD', text)
+    logging.debug(f"Original text: '{text}' | Normalized text: '{normalized}'")
+    return normalized
 
-async def summary_from_speeda(category: str,prompt: str):
+async def summary_from_speeda(category: str, prompt: str) -> str:
     """
     Blobストレージからファイルをダウンロードし、一時ファイルとして保存。
     小分類名に基づいて .docx ファイルを検索します。
@@ -389,7 +388,7 @@ async def summary_from_speeda(category: str,prompt: str):
     """
     temp_file_path = None  # 初期化
     try:
-        # カテゴリー名の正規化
+        # カテゴリー名の正規化（NFD形式）
         normalized_category = normalize_text(category)
         logging.info(f"Normalized category name: '{normalized_category}'")
         
@@ -401,15 +400,23 @@ async def summary_from_speeda(category: str,prompt: str):
 
         logging.info(f"Constructed blob name: '{blob_name}'")
         
+        # 非同期Blobサービスクライアントの初期化
+        blob_service_client = AsyncBlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+        blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
+        logging.info(f"アクセスするBlob名: '{blob_name}'")
+
+        # Blobの存在確認
+        blob_exists = await blob_client.exists()
+        logging.debug(f"Blob '{blob_name}' の存在: {blob_exists}")
+        if not blob_exists:
+            logging.error(f"指定されたBlob '{blob_name}' はコンテナ '{BLOB_CONTAINER_NAME}' に存在しません。")
+            raise HTTPException(status_code=404, detail="指定されたBlobファイルが存在しません。")
+
+        # 一時ファイルの作成
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
         temp_file_path = temp_file.name
         temp_file.close()
         text = ""
-
-        # 非同期Blobサービスクライアントの初期化
-        blob_service_client = AsyncBlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
-        blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_name)
-        logging.info(f"アクセスするBlob名: {blob_name}")
 
         # Blobストレージからファイルを非同期にダウンロード
         try:
@@ -426,6 +433,7 @@ async def summary_from_speeda(category: str,prompt: str):
         try:
             doc = Document(temp_file_path)
             text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            logging.info(f"Word文書 '{blob_name}' の内容を読み込みました。")
         except Exception as e:
             logging.error(f"Word文書の読み込みエラー: {e}")
             raise HTTPException(status_code=500, detail="Word文書の読み込みに失敗しました。")
@@ -441,12 +449,15 @@ async def summary_from_speeda(category: str,prompt: str):
             )
             chatgpt_summary = chatgpt_response.choices[0].message['content'].strip()
             logging.info(f"{prompt}のChatGPT要約結果: {chatgpt_summary}")
-        except OpenAIError as e:
+        except openai.error.OpenAIError as e:
             logging.error(f"ChatGPT初回要約エラー: {e}")
             chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
 
         return chatgpt_summary
 
+    except HTTPException as he:
+        # HTTPExceptionをそのまま投げる
+        raise he
     except Exception as e:
         logging.error(f"Blobストレージまたは要約処理中のエラー: {e}")
         raise HTTPException(status_code=500, detail="エラーが発生しました。再試行してください。")
@@ -457,7 +468,6 @@ async def summary_from_speeda(category: str,prompt: str):
                 logging.info(f"一時ファイル '{temp_file_path}' を削除しました。")
             except Exception as e:
                 logging.warning(f"一時ファイルの削除に失敗しました: {e}")
-                
 
 
 def perplexity_search(prompt: str) -> str:
