@@ -71,6 +71,7 @@ async def log_requests(request: Request, call_next):
         logger.error(f"Error processing request: {e}")
         raise e
 
+#使ってない
 @app.post("/summarize")
 async def summary_endpoint(request: dict):
     """
@@ -188,6 +189,7 @@ async def unison_summary(request: PerplexityInput):
     except Exception as e:
         logging.error(f"エンドポイント処理中のエラー: {e}")
         raise HTTPException(status_code=500, detail="エンドポイント処理中にエラーが発生しました。")   
+    
 # エンドポイント
 @app.post("/valuation", response_model=ValuationOutput)
 async def valuation_endpoint(request: ValuationInput):
@@ -224,6 +226,7 @@ async def export_endpoint(
         background_tasks, request.summaries.dict(), request.valuation_data.dict() if request.valuation_data else None, company_name, file_name
     )    
 
+#使ってない
 @app.post("/regenerate-summary")
 async def user_regenerate(request: dict):
     """
