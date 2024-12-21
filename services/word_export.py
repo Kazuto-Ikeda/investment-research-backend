@@ -24,7 +24,7 @@ def clean_text(text: str) -> str:
     # すべての#を削除
     text = text.replace('#', '')
     # 追加で他のMarkdown記号（***, **, *, ___, __, _）を削除したい場合は以下を使用
-    # text = re.sub(r'\*\*\*|\*\*|\*|___|__|_', '', text)
+    text = re.sub(r'\*\*\*|\*\*|\*|___|__|_', '', text)
     return text
 
 def generate_word_file(
