@@ -3,13 +3,9 @@ from fastapi.responses import FileResponse
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 import os
 import re
 import logging
-import unicodedata
 
 def delete_file(path: str):
     """指定されたファイルを削除"""
@@ -23,8 +19,10 @@ def clean_text(text: str) -> str:
     """
     テキストからMarkdown記号や注釈を削除する関数
     """
-    # 注釈（例: [1]）を削除
+    # 注釈（例: [1][3]）を削除
     text = re.sub(r'\[\d+\]', '', text)
+    # すべての#を削除
+    text = text.replace('#', '')
     return text
 
 def apply_markdown_formatting(paragraph, text: str):
@@ -72,11 +70,13 @@ def apply_markdown_formatting(paragraph, text: str):
         (r'_(.*?)_', 'italic'),                 # _text_
     ]
 
-    # 初期化
-    paragraph.text = text
+    # 全ての既存のランをクリア
+    for run in paragraph.runs:
+        run.text = ''
 
+    # 太字と斜体の適用
     for pattern, style in bold_italic_patterns:
-        matches = re.findall(pattern, paragraph.text)
+        matches = re.findall(pattern, text)
         for match in matches:
             if style == 'bold_italic':
                 run = paragraph.add_run(match)
@@ -89,12 +89,15 @@ def apply_markdown_formatting(paragraph, text: str):
                 run = paragraph.add_run(match)
                 run.italic = True
             # テキストからMarkdown記号を削除
-            paragraph.text = re.sub(rf'\*\*\*{re.escape(match)}\*\*\*', match, paragraph.text)
-            paragraph.text = re.sub(rf'\*\*{re.escape(match)}\*\*', match, paragraph.text)
-            paragraph.text = re.sub(rf'\*{re.escape(match)}\*', match, paragraph.text)
-            paragraph.text = re.sub(rf'___{re.escape(match)}___', match, paragraph.text)
-            paragraph.text = re.sub(rf'__{re.escape(match)}__', match, paragraph.text)
-            paragraph.text = re.sub(rf'_{re.escape(match)}_', match, paragraph.text)
+            text = re.sub(rf'\*\*\*{re.escape(match)}\*\*\*', match, text)
+            text = re.sub(rf'\*\*{re.escape(match)}\*\*', match, text)
+            text = re.sub(rf'\*{re.escape(match)}\*', match, text)
+            text = re.sub(rf'___{re.escape(match)}___', match, text)
+            text = re.sub(rf'__{re.escape(match)}__', match, text)
+            text = re.sub(rf'_{re.escape(match)}_', match, text)
+
+    # 残りのテキストを追加
+    paragraph.add_run(text)
 
 def generate_word_file(
     background_tasks: BackgroundTasks,
@@ -227,6 +230,8 @@ def generate_word_file(
         filename=file_name,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+    
+    
 
 # from fastapi import Body, Query, BackgroundTasks
 # from fastapi.responses import FileResponse
