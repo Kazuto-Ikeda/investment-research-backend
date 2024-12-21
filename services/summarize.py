@@ -441,7 +441,7 @@ async def summary_from_speeda(category: str, prompt: str) -> str:
         try:
             # 初回要約: ChatGPT
             chatgpt_response = await openai.ChatCompletion.acreate(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "あなたは優秀な投資家であり、市場調査の専門家です。"},
                     {"role": "user", "content": f"{text}\n\n質問: {prompt}\n500字以内で要約してください。"}
