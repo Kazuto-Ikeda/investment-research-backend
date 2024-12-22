@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from models.model import ValuationInput, ValuationOutput
 from typing import Optional
 from fastapi import HTTPException
-from azure.storage.blob.aio import BlobServiceClient as AsyncBlobServiceClient
+from azure.storage.blob import BlobServiceClient  # 非同期クライアントから同期クライアントに変更
 from docx import Document
 import os
 import tempfile
@@ -40,8 +40,8 @@ def normalize_text(text: str) -> str:
 async def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
     logging.info(f"Starting valuation calculation with input: {input_data}")
     
-    # 非同期Blobサービスクライアントの初期化
-    blob_service_client = AsyncBlobServiceClient.from_connection_string(os.getenv("AZURE_STORAGE_CONNECTION_STRING"))
+    # 同期Blobサービスクライアントの初期化
+    blob_service_client = BlobServiceClient.from_connection_string(os.getenv("AZURE_STORAGE_CONNECTION_STRING"))
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
     temp_file_path = temp_file.name
     temp_file.close()
@@ -64,16 +64,16 @@ async def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
         logging.info(f"アクセスするBlob名: '{blob_name}'")
 
         # Blobの存在確認
-        blob_exists = await blob_client.exists()
+        blob_exists = blob_client.exists()
         logging.debug(f"Blob '{blob_name}' の存在: {blob_exists}")
         if not blob_exists:
             logging.error(f"指定されたBlob '{blob_name}' はコンテナ '{os.getenv('BLOB_CONTAINER_NAME')}' に存在しません。")
             raise HTTPException(status_code=404, detail="指定されたBlobファイルが存在しません。")
 
-        # Blobストレージからファイルを非同期にダウンロード
+        # Blobストレージからファイルをダウンロード
         try:
-            download_stream = await blob_client.download_blob()
-            data = await download_stream.readall()
+            download_stream = blob_client.download_blob()
+            data = download_stream.readall()
             with open(temp_file_path, "wb") as file:
                 file.write(data)
             logging.info(f"Blob '{blob_name}' を一時ファイル '{temp_file_path}' にダウンロードしました。")
