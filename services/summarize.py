@@ -14,6 +14,8 @@ import requests
 import tempfile
 import unicodedata
 import re
+import bleach
+import markdown
 
 
 # ロギング設
@@ -56,6 +58,24 @@ def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize('NFD', text)
     # logging.debug(f"Original text: '{text}' | Normalized text: '{normalized}'")
     return normalized
+
+# Markdown変換およびサニタイズ関数
+def convert_markdown_to_html(text: str) -> str:
+    """
+    MarkdownテキストをHTMLに変換し、サニタイズする関数
+    """
+    # MarkdownをHTMLに変換
+    html = markdown.markdown(text, extensions=['extra', 'nl2br'])
+    
+    # サニタイズ（許可するタグと属性を定義）
+    allowed_tags = bleach.sanitizer.ALLOWED_TAGS + ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'blockquote', 'code', 'pre']
+    allowed_attributes = {
+        'a': ['href', 'title', 'target'],
+        'img': ['src', 'alt', 'title'],
+    }
+    sanitized_html = bleach.clean(html, tags=allowed_tags, attributes=allowed_attributes)
+    
+    return sanitized_html
 
 
 def summary_from_speeda(category: str, prompt: str) -> str:
@@ -128,11 +148,15 @@ def summary_from_speeda(category: str, prompt: str) -> str:
             #テキストのクリーンアップ
             cleaned_chatgpt_summary = clean_text(chatgpt_summary)
             logging.info(f"クリーンアップ後のChatGPT要約結果: {cleaned_chatgpt_summary}")
+            
+            #マークダウンの適用
+            markdown_summary = convert_markdown_to_html(cleaned_chatgpt_summary)
+            logging.info(f"Markdown変換後の要約結果: {markdown_summary}")
         except HTTPException as e:
             logging.error(f"ChatGPT初回要約エラー: {e}")
             cleaned_chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
 
-        return cleaned_chatgpt_summary
+        return markdown_summary
 
     except HTTPException as he:
         # HTTPExceptionをそのまま投げる
@@ -187,7 +211,9 @@ def perplexity_search(prompt: str) -> str:
         
         #テキストクリーンアップ
         cleaned_perplexity_summary = clean_text(perplexity_summary)
-        return cleaned_perplexity_summary
+        # Markdown変換とサニタイズ
+        markdown_perplexity_summary = convert_markdown_to_html(cleaned_perplexity_summary)
+        return markdown_perplexity_summary
     except Exception as e:
         logging.error(f"Perplexity API呼び出し中のエラー: {e}")
         return "Perplexityによる補足情報の取得中にエラーが発生しました。"
