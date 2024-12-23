@@ -13,6 +13,8 @@ import httpx
 import requests
 import tempfile
 import unicodedata
+import re
+
 
 # ロギング設
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +37,18 @@ BLOB_CONTAINER_NAME = os.getenv("BLOB_CONTAINER_NAME")
 
 
 client = OpenAI(api_key = OPENAI_API_KEY)
+
+def clean_text(text: str) -> str:
+    """
+    テキストから注釈や特定の記号を削除する関数
+    """
+    # 注釈（例: [1][3]）を削除
+    text = re.sub(r'\[\d+\]', '', text)
+    # すべての#を削除
+    text = text.replace('#', '')
+    # 追加で他のMarkdown記号（***, **, *, ___, __, _）を削除したい場合は以下を使用
+    text = re.sub(r'\*\*\*|\*\*|\*|___|__|_', '', text)
+    return text
 
 # Unicode正規化関数（NFD形式で正規化）
 def normalize_text(text: str) -> str:
@@ -110,11 +124,15 @@ def summary_from_speeda(category: str, prompt: str) -> str:
             )
             chatgpt_summary = chatgpt_response.choices[0].message.content
             logging.info(f"{prompt}のChatGPT要約結果: {chatgpt_summary}")
+            
+            #テキストのクリーンアップ
+            cleaned_chatgpt_summary = clean_text(chatgpt_summary)
+            logging.info(f"クリーンアップ後のChatGPT要約結果: {cleaned_chatgpt_summary}")
         except HTTPException as e:
             logging.error(f"ChatGPT初回要約エラー: {e}")
-            chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
+            cleaned_chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
 
-        return chatgpt_summary
+        return cleaned_chatgpt_summary
 
     except HTTPException as he:
         # HTTPExceptionをそのまま投げる
@@ -166,7 +184,10 @@ def perplexity_search(prompt: str) -> str:
         # レスポンス形式に応じて適切に要約を取得
         data = response.json()
         perplexity_summary = data["choices"][0]["message"]["content"]  # 修正箇所
-        return perplexity_summary
+        
+        #テキストクリーンアップ
+        cleaned_perplexity_summary = clean_text(perplexity_summary)
+        return cleaned_perplexity_summary
     except Exception as e:
         logging.error(f"Perplexity API呼び出し中のエラー: {e}")
         return "Perplexityによる補足情報の取得中にエラーが発生しました。"
