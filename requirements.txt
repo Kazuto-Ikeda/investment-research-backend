@@ -11,4 +11,4 @@ openai==1.58.1
 azure-storage-blob==12.24.0
 httpx==0.24.1
 aiohttp==3.8.1
-bleach==4.1.0
+bleach==4.1.0               #マークダウン表記
