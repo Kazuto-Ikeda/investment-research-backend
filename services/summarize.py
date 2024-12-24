@@ -217,7 +217,7 @@ def perplexity_search(prompt: str) -> str:
         cleaned_perplexity_summary = clean_text(perplexity_summary)
         # # Markdown変換とサニタイズ
         # markdown_perplexity_summary = convert_markdown_to_html(cleaned_perplexity_summary)
-        return perplexity_summary
+        return cleaned_perplexity_summary
     except Exception as e:
         logging.error(f"Perplexity API呼び出し中のエラー: {e}")
         return "Perplexityによる補足情報の取得中にエラーが発生しました。"
