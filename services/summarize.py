@@ -15,7 +15,7 @@ import tempfile
 import unicodedata
 import re
 import bleach
-import markdown
+# import markdown
 
 
 # ロギング設
@@ -40,10 +40,14 @@ BLOB_CONTAINER_NAME = os.getenv("BLOB_CONTAINER_NAME")
 
 client = OpenAI(api_key = OPENAI_API_KEY)
 
-def clean_text(text: str) -> str:
+def clean_text(markdown_text: str) -> str:
     """
     テキストから注釈や特定の記号を削除する関数
     """
+    # 段落を改行で分割
+    text = re.sub(r'\n{2,}', '\n\n', markdown_text)
+    # リスト項目の前に改行を追加
+    text = re.sub(r'^\s*[\*\-\+]\s+', '\n- ', text, flags=re.MULTILINE)
     # 注釈（例: [1][3]）を削除
     text = re.sub(r'\[\d+\]', '', text)
     # すべての#を削除
@@ -59,23 +63,23 @@ def normalize_text(text: str) -> str:
     # logging.debug(f"Original text: '{text}' | Normalized text: '{normalized}'")
     return normalized
 
-# Markdown変換およびサニタイズ関数
-def convert_markdown_to_html(text: str) -> str:
-    """
-    MarkdownテキストをHTMLに変換し、サニタイズする関数
-    """
-    # MarkdownをHTMLに変換
-    html = markdown.markdown(text, extensions=['extra', 'nl2br'])
+# # Markdown変換およびサニタイズ関数
+# def convert_markdown_to_html(text: str) -> str:
+#     """
+#     MarkdownテキストをHTMLに変換し、サニタイズする関数
+#     """
+#     # MarkdownをHTMLに変換
+#     html = markdown.markdown(text, extensions=['extra', 'nl2br'])
     
-    # サニタイズ（許可するタグと属性を定義）
-    allowed_tags = bleach.sanitizer.ALLOWED_TAGS + ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'blockquote', 'code', 'pre']
-    allowed_attributes = {
-        'a': ['href', 'title', 'target'],
-        'img': ['src', 'alt', 'title'],
-    }
-    sanitized_html = bleach.clean(html, tags=allowed_tags, attributes=allowed_attributes)
+#     # サニタイズ（許可するタグと属性を定義）
+#     allowed_tags = bleach.sanitizer.ALLOWED_TAGS + ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'blockquote', 'code', 'pre']
+#     allowed_attributes = {
+#         'a': ['href', 'title', 'target'],
+#         'img': ['src', 'alt', 'title'],
+#     }
+#     sanitized_html = bleach.clean(html, tags=allowed_tags, attributes=allowed_attributes)
     
-    return sanitized_html
+#     return sanitized_html
 
 
 def summary_from_speeda(category: str, prompt: str) -> str:
@@ -149,14 +153,14 @@ def summary_from_speeda(category: str, prompt: str) -> str:
             cleaned_chatgpt_summary = clean_text(chatgpt_summary)
             logging.info(f"クリーンアップ後のChatGPT要約結果: {cleaned_chatgpt_summary}")
             
-            #マークダウンの適用
-            markdown_summary = convert_markdown_to_html(cleaned_chatgpt_summary)
-            logging.info(f"Markdown変換後の要約結果: {markdown_summary}")
+            # #マークダウンの適用
+            # markdown_summary = convert_markdown_to_html(cleaned_chatgpt_summary)
+            # logging.info(f"Markdown変換後の要約結果: {markdown_summary}")
         except HTTPException as e:
             logging.error(f"ChatGPT初回要約エラー: {e}")
             cleaned_chatgpt_summary = "ChatGPT初回要約エラーが発生しました。"
 
-        return markdown_summary
+        return cleaned_chatgpt_summary
 
     except HTTPException as he:
         # HTTPExceptionをそのまま投げる
@@ -211,9 +215,9 @@ def perplexity_search(prompt: str) -> str:
         
         #テキストクリーンアップ
         cleaned_perplexity_summary = clean_text(perplexity_summary)
-        # Markdown変換とサニタイズ
-        markdown_perplexity_summary = convert_markdown_to_html(cleaned_perplexity_summary)
-        return markdown_perplexity_summary
+        # # Markdown変換とサニタイズ
+        # markdown_perplexity_summary = convert_markdown_to_html(cleaned_perplexity_summary)
+        return perplexity_summary
     except Exception as e:
         logging.error(f"Perplexity API呼び出し中のエラー: {e}")
         return "Perplexityによる補足情報の取得中にエラーが発生しました。"
