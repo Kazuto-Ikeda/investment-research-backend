@@ -46,8 +46,8 @@ def clean_text(markdown_text: str) -> str:
     """
     # 段落を改行で分割
     text = re.sub(r'\n{2,}', '\n\n', markdown_text)
-    # リスト項目の前に改行を追加
-    text = re.sub(r'^\s*[\*\-\+]\s+', '\n- ', text, flags=re.MULTILINE)
+    # # リスト項目の前に改行を追加
+    # text = re.sub(r'^\s*[\*\-\+]\s+', '\n- ', text, flags=re.MULTILINE)
     # 注釈（例: [1][3]）を削除
     text = re.sub(r'\[\d+\]', '', text)
     # # すべての#を削除
