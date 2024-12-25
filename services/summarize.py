@@ -52,8 +52,7 @@ def clean_text(markdown_text: str) -> str:
     text = re.sub(r'\[\d+\]', '', text)
     # すべての#を削除
     text = text.replace('#', '')
-    # # 追加で他のMarkdown記号（***, **, *, ___, __, _）を削除したい場合は以下を使用
-    # text = re.sub(r'\*\*\*|\*\*|\*|___|__|_', '', text)
+    
     return text
 
 # Unicode正規化関数（NFD形式で正規化）
