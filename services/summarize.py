@@ -50,8 +50,8 @@ def clean_text(markdown_text: str) -> str:
     text = re.sub(r'^\s*[\*\-\+]\s+', '\n- ', text, flags=re.MULTILINE)
     # 注釈（例: [1][3]）を削除
     text = re.sub(r'\[\d+\]', '', text)
-    # すべての#を削除
-    text = text.replace('#', '')
+    # # すべての#を削除
+    # text = text.replace('#', '')
     
     return text
 
