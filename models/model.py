@@ -1,5 +1,8 @@
 from pydantic import BaseModel
 from typing import Optional, Dict
+import mistune
+from mistune import Markdown
+
 
 #再生成
 class RegenerateRequest(BaseModel):
@@ -95,3 +98,6 @@ class ValuationData(BaseModel):
 class WordExportRequest(BaseModel):
     summaries: Summaries
     valuation_data: Optional[ValuationData] = None
+    
+    
+

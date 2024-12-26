@@ -52,6 +52,8 @@ def clean_text(markdown_text: str) -> str:
     text = re.sub(r'\[\d+\]', '', text)
     # # すべての#を削除
     # text = text.replace('#', '')
+    # 太字のマークダウン記号 ** を削除
+    text = text.replace('**', '')
     
     return text
 

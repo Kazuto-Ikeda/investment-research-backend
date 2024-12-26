@@ -10,7 +10,6 @@ from services.summarize import normalize_text
 from services.summarize import summary_from_speeda
 from services.word_export import generate_word_file
 from services.summarize import clean_text
-# from services.summarize import convert_markdown_to_html
 from models.model import WordExportRequest
 
 from services.valuation import calculate_valuation

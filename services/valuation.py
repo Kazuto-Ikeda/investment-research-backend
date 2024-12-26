@@ -136,14 +136,14 @@ async def calculate_valuation(input_data: ValuationInput) -> ValuationOutput:
         ev_forecast = input_data.net_debt_current + input_data.equity_value_current  # 進行期見込みも同じ値
         logging.info(f"EV Current: {ev_current}, EV Forecast: {ev_forecast}")
 
-        # エントリーマルチプルの計算
+        # エントリーマルチプルの計算（修正後）
         entry_multiple_current = (
             ev_current / input_data.ebitda_current
-            if input_data.ebitda_current and input_data.ebitda_current > 0 else None
+            if input_data.ebitda_current and input_data.ebitda_current != 0 else None
         )
         entry_multiple_forecast = (
             ev_forecast / input_data.ebitda_forecast
-            if input_data.ebitda_forecast and input_data.ebitda_forecast > 0 else None
+            if input_data.ebitda_forecast and input_data.ebitda_forecast != 0 else None
         )
         logging.info(f"Entry Multiple Current: {entry_multiple_current}, Entry Multiple Forecast: {entry_multiple_forecast}")
 
