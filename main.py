@@ -9,7 +9,6 @@ from models.model import ValuationInput, ValuationOutput, SpeedaInput,Perplexity
 from services.summarize import normalize_text
 from services.summarize import summary_from_speeda
 from services.word_export import generate_word_file
-from services.summarize import clean_text
 from models.model import WordExportRequest
 
 from services.valuation import calculate_valuation
@@ -145,6 +144,7 @@ async def valuation_endpoint(request: ValuationInput):
         raise HTTPException(status_code=400, detail=str(e))
             
         
+
 @app.post("/word_export")
 async def export_endpoint(
     background_tasks: BackgroundTasks,
@@ -155,7 +155,15 @@ async def export_endpoint(
     """
     Wordファイル生成エンドポイント
     """
-    return generate_word_file(
-        background_tasks, request.summaries.dict(), request.valuation_data.dict() if request.valuation_data else None, company_name, file_name
-    )    
+    # request.summaries は pydantic のオブジェクトなので .dict() で辞書化
+    # request.valuation_data も同様
+    summaries_dict = request.summaries.dict()
+    valuation_data_dict = request.valuation_data.dict() if request.valuation_data else None
 
+    return generate_word_file(
+        background_tasks=background_tasks,
+        summaries=summaries_dict,
+        valuation_data=valuation_data_dict,
+        company_name=company_name,
+        file_name=file_name
+    )

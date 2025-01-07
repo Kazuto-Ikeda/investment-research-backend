@@ -1,7 +1,5 @@
 from pydantic import BaseModel
 from typing import Optional, Dict
-import mistune
-from mistune import Markdown
 
 
 #再生成
