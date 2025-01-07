@@ -14,33 +14,29 @@ from mistune.plugins import plugin_table
 
 
 
-########################################
-# カスタムレンダラー: DocxRenderer
-########################################
 class DocxRenderer(mistune.AstRenderer):
     """
-    Mistune 2.x の AstRenderer を継承し、MarkdownのASTをpython-docxでWordに変換する。
-
-    【本サンプルで対応する要素】
-      - heading (h1～h6)
-      - paragraph (段落)
-      - list / list_item (箇条書き, 番号リスト, 入れ子)
-      - table (表)
-      - strong, emphasis (太字, 斜体)
-      - blockquote, thematic_break (引用, 区切り線) などの追加実装例
-
-    段落内では複数の Run を生成し、強調(太字/斜体)を適宜反映。
-    リストは入れ子にも対応。テーブルは表のヘッダとセルを単純に埋める。
+    Mistune 2.x の AstRenderer を継承し、Markdown の AST を Python-docx で Word に変換。
+    
+    主な対応要素:
+      - 見出し(heading) -> Word段落+run（太字/フォントサイズ）
+      - 段落(paragraph) -> Word段落
+      - 箇条書き(list, list_item) -> List Bullet/Number スタイル, 入れ子リスト対応
+      - テーブル(table) -> plugin_table が生成したASTをそのまま受け取り、Word表に変換
+      - 強調(strong, emphasis) -> Runの bold/italic
+      - blockquote(引用), thematic_break(水平線) -> サンプル実装
+    
+    段落の途中で太字や斜体にしたい場合、Runを分割して追加しています。
     """
 
     def __init__(self, document: Document):
         super().__init__()
         self.document = document
-        self.current_paragraph = None  # 段落オブジェクト（処理中の段落）
+        self.current_paragraph = None  # 処理中の段落オブジェクト
 
     def render(self, tokens, state):
         """
-        AST全体を走査し、トークンの種類に応じた _render_xxx() を呼び出す。
+        AST全体を走査し、トークン種類に応じて _render_xxx() メソッドを呼び出す。
         """
         for token in tokens:
             node_type = token['type']
@@ -57,19 +53,27 @@ class DocxRenderer(mistune.AstRenderer):
             elif node_type == 'table':
                 self._render_table(token)
             else:
-                logging.debug(f"Skipping unknown node type: {node_type}")
-        return ''  # Word文書に直接書き込むので文字列は返さない
+                logging.debug(f"[DocxRenderer] Skip unknown node: {node_type}")
+        return ''  # 文字列は返さず、Word文書に直接書き込む
 
-    ############################
+    #######################################################
     # heading (見出し)
-    ############################
+    #######################################################
     def _render_heading(self, token):
+        """
+        token例:
+          {
+            'type': 'heading',
+            'level': 1..6,
+            'children': [...]
+          }
+        """
         level = token['level']
         children = token.get('children', [])
 
-        # 新しい段落を作成
         self.current_paragraph = self.document.add_paragraph()
-        # レベルに応じたフォントサイズ, alignment
+
+        # heading レベル別にフォントサイズや整列を切り替え
         if level == 1:
             fsize = Pt(18)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -80,115 +84,124 @@ class DocxRenderer(mistune.AstRenderer):
             fsize = Pt(14)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-        # heading は基本太字
+        # heading は基本的に太字
         for child in children:
-            text_ = self._extract_text(child)
-            run_ = self.current_paragraph.add_run(text_)
-            run_.font.size = fsize
-            run_.bold = True
+            txt = self._extract_text(child)
+            run = self.current_paragraph.add_run(txt)
+            run.font.size = fsize
+            run.bold = True
 
-    ############################
+    #######################################################
     # paragraph (段落)
-    ############################
+    #######################################################
     def _render_paragraph(self, token):
+        """
+        token例:
+          { 'type':'paragraph', 'children':[...inline elements...] }
+        """
         self.current_paragraph = self.document.add_paragraph()
-        children = token.get('children', [])
-        self._render_inline_children(children)
+        inline_children = token.get('children', [])
+        self._render_inline_children(inline_children)
 
     def _render_inline_children(self, children):
         """
-        段落内のインライン要素 (text, strong, emphasis, など) をRunに変換
+        段落内に複数の Run を生成し、強調(strong,emphasis)などを適宜反映
         """
         for node in children:
             ntype = node['type']
             if ntype == 'text':
-                run_ = self.current_paragraph.add_run(node['text'])
+                run = self.current_paragraph.add_run(node['text'])
             elif ntype == 'strong':
                 txt = self._extract_text(node)
-                run_ = self.current_paragraph.add_run(txt)
-                run_.bold = True
+                run = self.current_paragraph.add_run(txt)
+                run.bold = True
             elif ntype == 'emphasis':
                 txt = self._extract_text(node)
-                run_ = self.current_paragraph.add_run(txt)
-                run_.italic = True
+                run = self.current_paragraph.add_run(txt)
+                run.italic = True
             else:
-                # link, codespan, image等は必要に応じて追加
+                # link/codespanなどの実装は要件に応じて追加
                 txt = self._extract_text(node)
-                run_ = self.current_paragraph.add_run(txt)
+                run = self.current_paragraph.add_run(txt)
 
-    ############################
+    #######################################################
     # list + list_item (入れ子対応)
-    ############################
+    #######################################################
     def _render_list(self, token, level=0):
+        """
+        token例:
+          {
+            'type': 'list',
+            'ordered': True/False,
+            'children': [...list_item... or nested list...]
+          }
+        """
         ordered = token.get('ordered', False)
         for child in token.get('children', []):
             if child['type'] == 'list_item':
-                self._render_list_item(child, ordered=ordered, level=level)
+                self._render_list_item(child, ordered, level)
             elif child['type'] == 'list':
-                # 入れ子リスト (list の中に list)
+                # 入れ子リスト
                 self._render_list(child, level=level+1)
 
     def _render_list_item(self, token, ordered, level):
         """
-        list_itemには子要素が paragraph であることが多いが、単なるtextの場合もあり得る
+        list_item: { 'type':'list_item', 'children':[...] }
         """
         style = 'List Number' if ordered else 'List Bullet'
         self.current_paragraph = self.document.add_paragraph(style=style)
-        # レベルに応じてインデント (0.5cm * levelなどは任意調整)
+        # levelに応じてインデントを増やす例 (0.5cm * level)
         self.current_paragraph.paragraph_format.left_indent = Cm(0.5 * level)
 
-        children = token.get('children', [])
-        # list_item 内に複数 paragraph が入る場合がある。
-        # シンプルに最初の paragraphだけ同じ段落に書く例
-        for child in children:
+        # list_item内の要素を処理
+        for child in token.get('children', []):
             ctype = child['type']
             if ctype == 'paragraph':
+                # リスト項目の段落
                 inline_nodes = child.get('children', [])
                 self._render_inline_children(inline_nodes)
             elif ctype == 'list':
                 # さらに入れ子のリスト
                 self._render_list(child, level=level+1)
             else:
-                # textなど
                 txt = self._extract_text(child)
                 self.current_paragraph.add_run(txt)
 
-    ############################
+    #######################################################
     # blockquote (引用)
-    ############################
+    #######################################################
     def _render_blockquote(self, token):
         """
-        引用ブロック。ここではスタイル 'Intense Quote' を適用。
+        引用ブロックを例示的に実装。スタイル 'Intense Quote' を適用。
         """
         self.current_paragraph = self.document.add_paragraph(style='Intense Quote')
-        children = token.get('children', [])
-        # blockquote内は複数paragraphの場合もあるので要注意
-        for child in children:
+        for child in token.get('children', []):
             if child['type'] == 'paragraph':
-                inline_nodes = child.get('children', [])
-                run_text = ''.join(self._extract_text(n) for n in inline_nodes)
-                self.current_paragraph.add_run(run_text)
-            else:
-                # さらにlistやheadingがある場合は要拡張
-                pass
+                text = ''.join(self._extract_text(n) for n in child.get('children', []))
+                self.current_paragraph.add_run(text)
 
-    ############################
+    #######################################################
     # thematic_break (水平線)
-    ############################
+    #######################################################
     def _render_thematic_break(self, token):
         """
-        水平線。簡単に区切り行を挿入する例。
+        簡易的に区切り線として "--------" を追加する例
         """
         hr_para = self.document.add_paragraph()
-        hr_para.add_run('----------').bold = True
+        hr_para.add_run('--------------').bold = True
 
-    ############################
+    #######################################################
     # table (表)
-    ############################
+    #######################################################
     def _render_table(self, token):
         """
-        token は { 'type':'table', 'header': [...], 'align': [...], 'cells': [ [...], [...]] }
-        Mistuneのtableプラグイン利用
+        plugin_table で生成されたAST:
+          {
+            'type': 'table',
+            'header': [ [cell1, cell2...], ... ],
+            'cells': [ [ [cell1, cell2...], [cell1, cell2...] ], ... ],
+            'align': [...]
+          }
         """
         header = token.get('header', [])
         cells = token.get('cells', [])
@@ -199,63 +212,88 @@ class DocxRenderer(mistune.AstRenderer):
         table = self.document.add_table(rows=1, cols=col_count)
         table.style = 'Table Grid'
 
-        # ヘッダー
+        # ヘッダー行
         hdr_cells = table.rows[0].cells
         for i, cell_ast in enumerate(header):
-            text_ = self._extract_text(cell_ast)
-            hdr_cells[i].text = text_
-            # 太字
+            cell_txt = self._extract_text(cell_ast)
+            hdr_cells[i].text = cell_txt
+            # ヘッダーは太字
             for p in hdr_cells[i].paragraphs:
                 for r in p.runs:
                     r.bold = True
 
-        # 本文
+        # データ行
         for row_data in cells:
             row_cells = table.add_row().cells
             for col_idx, cell_ast in enumerate(row_data):
-                text_ = self._extract_text(cell_ast)
-                row_cells[col_idx].text = text_
+                txt = self._extract_text(cell_ast)
+                row_cells[col_idx].text = txt
 
-    ############################
-    # ユーティリティ: インラインテキスト抽出
-    ############################
+    #######################################################
+    # テキスト抽出用のヘルパー
+    #######################################################
     def _extract_text(self, node):
         """
-        子要素を再帰的に走査してtextを連結。必要に応じてstrong/emphasis/linkの処理拡張
+        子ノードを再帰的に走査してテキストを連結
+        strong/emphasis等の見出しはここでは単なるテキストとして結合
         """
         if 'text' in node:
             return node['text']
         elif 'children' in node:
             return ''.join(self._extract_text(child) for child in node['children'])
-        return ''
+        return ''  # 該当なし
 
-
-########################################
-# 後処理で一時ファイルを削除する関数
-########################################
 def delete_file(path: str):
+    """
+    FileResponse返却後にバックグラウンドで削除するための後処理
+    """
     try:
         os.remove(path)
-        logging.info(f"ファイル {path} を削除しました。")
+        logging.info(f"[delete_file] Deleted file: {path}")
     except Exception as e:
-        logging.error(f"ファイル削除エラー: {e}")
+        logging.error(f"[delete_file] Error: {e}")
 
-########################################
-# 2) Markdown → Word + 追加のバリュエーション表
-########################################
+
 def generate_word_file(
     background_tasks: BackgroundTasks,
-    summaries: dict,
+    summaries: dict,            # 例: { "Perplexity": {...}, "ChatGPT": {...} }
     valuation_data: Optional[dict],
     company_name: str,
     file_name: Optional[str] = None,
 ) -> FileResponse:
     """
-    1. MarkdownをDocxRendererでWordに変換
-    2. バリュエーションデータを表出力
-    3. .docxファイルを返却
+    1. MarkdownをDocxRenderer (Mistune) でWordに変換
+    2. valuation_dataを表形式で出力
+    3. Wordファイルを保存し、FileResponseで返却 (後処理でファイル削除)
     """
-    # 見出しキー変換
+
+    ########################################
+    # 1) Wordドキュメント作成
+    ########################################
+    file_name = file_name or f"{company_name}_summary_report.docx"
+    document = Document()
+
+    # タイトル段落
+    title_para = document.add_paragraph(f"{company_name} - 要約レポート")
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run_title = title_para.runs[0]
+    run_title.font.size = Pt(18)
+    run_title.bold = True
+
+    ########################################
+    # 2) カスタムDocxRendererでMarkdownを解析
+    ########################################
+
+    docx_renderer = DocxRenderer(document)
+    md_parser = create_markdown(renderer=docx_renderer, plugins=[plugin_table])
+
+    # カテゴリ見出しのマッピング (任意)
+    category_mapping = {
+        "Perplexity": "Perplexity 分析",
+        "ChatGPT": "ChatGPT+SPEEDA 分析",
+    }
+
+    # セクション見出しのマッピング (任意)
     reverse_key_mapping = {
         "current_situation": "現状",
         "future_outlook": "将来性と課題",
@@ -266,104 +304,95 @@ def generate_word_file(
         "swot_analysis": "SWOT分析",
     }
 
-    category_mapping = {
-        "Perplexity": "Perplexity 分析",
-        "ChatGPT": "ChatGPT+SPEEDA 分析",
-    }
 
-    # ファイル名
-    file_name = file_name or f"{company_name}_summary_report.docx"
-
-    # Word文書
-    document = Document()
-
-    # タイトル作成
-    title_para = document.add_paragraph(f"{company_name} - 要約レポート")
-    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title_run = title_para.runs[0]
-    title_run.font.size = Pt(18)
-    title_run.bold = True
-
-    # Mistuneレンダラー
-    docx_renderer = DocxRenderer(document)
-    md_parser = create_markdown(renderer=docx_renderer, plugins=[plugin_table])
-
-    # 1) summaries (カテゴリ→セクション) を処理
     for main_category, sections in summaries.items():
         # カテゴリ見出し
         cat_jp = category_mapping.get(main_category, main_category)
-        cat_heading = document.add_paragraph(cat_jp)
-        cat_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        cat_run = cat_heading.runs[0]
+        cat_para = document.add_paragraph(cat_jp)
+        cat_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        cat_run = cat_para.runs[0]
         cat_run.font.size = Pt(16)
         cat_run.bold = True
 
-        # セクションを順次
-        for idx, (sec_key, sec_value) in enumerate(sections.items(), start=1):
+        # 各セクション
+        for idx, (sec_key, sec_text) in enumerate(sections.items(), start=1):
             sec_jp = reverse_key_mapping.get(sec_key, sec_key)
-            sec_heading = document.add_paragraph(f"{idx}. {sec_jp}")
-            sec_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            heading_run = sec_heading.runs[0]
-            heading_run.font.size = Pt(14)
-            heading_run.bold = True
+            sec_para = document.add_paragraph(f"{idx}. {sec_jp}")
+            sec_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            sec_run = sec_para.runs[0]
+            sec_run.font.size = Pt(14)
+            sec_run.bold = True
 
-            # Markdown解析 → Wordに書き込み
-            markdown_text = sec_value or "内容がありません"
-            md_parser(markdown_text)
+            # Markdown → Word
+            md_parser(sec_text or "内容がありません")
 
-    # 2) バリュエーション表
+    ########################################
+    # 3) バリュエーションテーブル追加 (オプション)
+    ########################################
     if valuation_data:
-        val_heading = document.add_paragraph("バリュエーション")
-        val_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        val_run = val_heading.runs[0]
+        val_para = document.add_paragraph("バリュエーション")
+        val_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        val_run = val_para.runs[0]
         val_run.font.size = Pt(16)
         val_run.bold = True
 
-        val_table = document.add_table(rows=1, cols=3)
-        val_table.style = 'Table Grid'
+        table = document.add_table(rows=1, cols=3)
+        table.style = "Table Grid"
 
-        hdr_cells = val_table.rows[0].cells
-        hdr_cells[0].text = '項目'
-        hdr_cells[1].text = '直近実績'
-        hdr_cells[2].text = '進行期見込'
-
-        # ヘッダー書式
-        for cell_ in hdr_cells:
-            for p_ in cell_.paragraphs:
+        hdr = table.rows[0].cells
+        hdr[0].text = "項目"
+        hdr[1].text = "直近実績"
+        hdr[2].text = "進行期見込"
+        for c_ in hdr:
+            for p_ in c_.paragraphs:
                 for r_ in p_.runs:
                     r_.font.bold = True
                     r_.font.size = Pt(11)
 
-        # バリュエーションデータを行追加
-        for key, val_obj in valuation_data.items():
-            row_ = val_table.add_row().cells
-            row_[0].text = key
+        # データ行追加
+        for label_, val_obj in valuation_data.items():
+            row_cells = table.add_row().cells
+            row_cells[0].text = label_
             if isinstance(val_obj, dict):
-                row_[1].text = val_obj.get("current", "不明")
-                row_[2].text = val_obj.get("forecast", "不明")
+                row_cells[1].text = val_obj.get("current", "不明")
+                row_cells[2].text = val_obj.get("forecast", "不明")
             else:
-                row_[1].text = str(val_obj)
-                row_[2].text = "不明"
+                row_cells[1].text = str(val_obj)
+                row_cells[2].text = "不明"
 
             # セル書式
-            for c_ in row_:
-                for p_ in c_.paragraphs:
+            for cell_ in row_cells:
+                for p_ in cell_.paragraphs:
                     p_.style = document.styles['Normal']
                     for r_ in p_.runs:
                         r_.font.size = Pt(10)
 
-    # 3) ファイル保存 → FileResponse
+    ########################################
+    # 4) Wordファイル保存 & FileResponse
+    ########################################
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, file_name)
     document.save(output_path)
 
     background_tasks.add_task(delete_file, output_path)
+
     return FileResponse(
         output_path,
         filename=file_name,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
+
+############################################以下fix前
+
+    
+# def delete_file(path: str):
+#     try:
+#         os.remove(path)
+#         logging.info(f"ファイル {path} を削除しました。")
+#     except Exception as e:
+#         logging.error(f"ファイル削除エラー: {e}")
+
 
 # def generate_word_file(
 #     background_tasks: BackgroundTasks,
