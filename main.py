@@ -151,14 +151,17 @@ async def export_endpoint(
     request: WordExportRequest,
     company_name: str = Query(..., description="会社名を指定"),
     file_name: Optional[str] = Query(None, description="生成するWordファイル名 (省略可能)")
+    
 ):
     """
     Wordファイル生成エンドポイント
     """
     # request.summaries は pydantic のオブジェクトなので .dict() で辞書化
     # request.valuation_data も同様
+    
     summaries_dict = request.summaries.dict()
     valuation_data_dict = request.valuation_data.dict() if request.valuation_data else None
+    logging.debug(f"Raw body: {summaries_dict}")
 
     return generate_word_file(
         background_tasks=background_tasks,
