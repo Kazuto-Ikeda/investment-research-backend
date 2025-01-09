@@ -270,7 +270,7 @@ def generate_word_file(
     summaries: dict,            # 例: { "Perplexity": {...}, "ChatGPT": {...} }
     valuation_data: Optional[dict],
     company_name: str,
-    file_name: Optional[str] = None,
+    file_name: Optional[str] = "result",
 ) -> FileResponse:
     """
     1. MarkdownをDocxRenderer (Mistune) でWordに変換
@@ -285,9 +285,7 @@ def generate_word_file(
     # 1) Wordドキュメント作成
     ########################################
     
-    if not file_name.lower().endswith('.docx'):
-        file_name = file_name + '.docx'
-    # file_name = f"{company_name}_summary_report.docx"
+    file_name = f"{company_name}_summary_report.docx"
     document = Document()
 
     # タイトル段落

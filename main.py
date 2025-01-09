@@ -151,7 +151,6 @@ async def export_endpoint(
     request: WordExportRequest,
     company_name: str = Query(..., description="会社名を指定"),
     file_name: Optional[str] = Query(None, description="生成するWordファイル名 (省略可能)")
-    
 ):
     """
     Wordファイル生成エンドポイント
