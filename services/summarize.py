@@ -70,7 +70,8 @@ def clean_text_chatgpt(markdown_text: str) -> str:
     text = re.sub(r'\n{2,}', '\n', markdown_text)
     # 注釈（例: [1][3]）を削除
     text = re.sub(r'\[\d+\]', '', text)
-    # ** は削除しない → 残したままフロントで処理
+    # 太字のマークダウン記号 ** を削除
+    text = text.replace('**', '')
     return text
 
 # def clean_text(markdown_text: str) -> str:

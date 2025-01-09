@@ -83,7 +83,7 @@ class DocxRenderer(mistune.AstRenderer):
             fsize = Pt(16)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         else:
-            fsize = Pt(12)
+            fsize = Pt(14)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
         # heading は基本的に太字
@@ -227,13 +227,11 @@ class DocxRenderer(mistune.AstRenderer):
         ]
         }
         """
-        logging.info(f"[_render_table] token={token}")
 
         # table_head と table_body を見つける
         table_head = None
         table_cell = None
         for child in token.get('children', []):
-            logging.info(f"[_render_table] token={child}")
             if child['type'] == 'table_head':
                 table_head = child
             elif child['type'] == 'table_body':
@@ -257,7 +255,6 @@ class DocxRenderer(mistune.AstRenderer):
 
         # テーブルを作成
         if col_count == 0:
-            logging.info("[_render_table] ヘッダーも本文も空でした。")
             return
 
         table = self.document.add_table(rows=1, cols=col_count)
@@ -387,7 +384,7 @@ def generate_word_file(
             sec_para = document.add_paragraph(f"{idx}. {sec_jp}")
             sec_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
             sec_run = sec_para.runs[0]
-            sec_run.font.size = Pt(12)
+            sec_run.font.size = Pt(14)
             sec_run.bold = True
 
             # Markdown → Word
