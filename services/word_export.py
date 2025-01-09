@@ -40,26 +40,18 @@ class DocxRenderer(mistune.AstRenderer):
         """
         for token in tokens:
             node_type = token['type']
-            logging.info(f"Test tokens=token: {token}")
-            logging.info(f"Test tokens=node_type: {node_type}")
             if node_type == 'heading':
                 self._render_heading(token)
-                logging.info(f"Test excusion=: {node_type}")
             elif node_type == 'paragraph':
                 self._render_paragraph(token)
-                logging.info(f"Test excusion=: {node_type}")
             elif node_type == 'list':
                 self._render_list(token, level=1)
-                logging.info(f"Test excusion=: {node_type}")
             elif node_type == 'blockquote':
                 self._render_blockquote(token)
-                logging.info(f"Test excusion=: {node_type}")
             elif node_type == 'thematic_break':
                 self._render_thematic_break(token)
-                logging.info(f"Test excusion=: {node_type}")
             elif node_type == 'table':
                 self._render_table(token)
-                logging.info(f"Test excusion=: {node_type}")
             else:
                 logging.debug(f"[DocxRenderer] Skip unknown node: {node_type}")
         return ''  # 文字列は返さず、Word文書に直接書き込む
@@ -206,39 +198,101 @@ class DocxRenderer(mistune.AstRenderer):
     #######################################################
     def _render_table(self, token):
         """
-        plugin_table で生成されたAST:
-          {
-            'type': 'table',
-            'header': [ [cell1, cell2...], ... ],
-            'cells': [ [ [cell1, cell2...], [cell1, cell2...] ], ... ],
-            'align': [...]
-          }
+        Mistune 2.x plugin_table で生成されたトークンに合わせた実装。
+        token 例:
+
+        {
+        'type': 'table',
+        'children': [
+            {
+            'type': 'table_head',
+            'children': [
+                { 'type': 'table_cell', 'children': [...], 'align': None, 'is_head': True },
+                ...
+            ]
+            },
+            {
+            'type': 'table_body',
+            'children': [
+                {
+                'type': 'table_row',
+                'children': [
+                    { 'type': 'table_cell', 'children': [...], 'align': None, 'is_head': False },
+                    ...
+                ]
+                },
+                ...
+            ]
+            }
+        ]
+        }
         """
-        header = token.get('header', [])
-        cells = token.get('cells', [])
-        if not header or not cells:
+        logging.info(f"[_render_table] token={token}")
+
+        # table_head と table_body を見つける
+        table_head = None
+        table_cell = None
+        for child in token.get('children', []):
+            logging.info(f"[_render_table] token={child}")
+            if child['type'] == 'table_head':
+                table_head = child
+            elif child['type'] == 'table_body':
+                table_cell = child
+        
+        # ヘッダー情報の取得
+        # table_head["children"] は table_cell 群 (1行のみ)
+        if table_head and 'children' in table_head:
+            head_cells = table_head['children']
+            col_count = len(head_cells)
+        else:
+            # ヘッダーなしの場合 → body の最初の row から列数を推定
+            if table_cell and 'children' in table_cell and len(table_cell['children']) > 0:
+                first_row = table_cell['children'][0]
+                if first_row.get('type') == 'table_row':
+                    col_count = len(first_row.get('children', []))
+                else:
+                    col_count = 0
+            else:
+                col_count = 0
+
+        # テーブルを作成
+        if col_count == 0:
+            logging.info("[_render_table] ヘッダーも本文も空でした。")
             return
 
-        col_count = len(header)
         table = self.document.add_table(rows=1, cols=col_count)
         table.style = 'Table Grid'
 
-        # ヘッダー行
-        hdr_cells = table.rows[0].cells
-        for i, cell_ast in enumerate(header):
-            cell_txt = self._extract_text(cell_ast)
-            hdr_cells[i].text = cell_txt
-            # ヘッダーは太字
-            for p in hdr_cells[i].paragraphs:
-                for r in p.runs:
-                    r.bold = True
+        # (1) テーブルヘッダーの描画
+        if table_head and table_head.get('children'):
+            # rows[0] にヘッダーを設定
+            hdr_cells = table.rows[0].cells
+            for i, cell_ast in enumerate(table_head['children']):
+                cell_text = self._extract_text(cell_ast)  # 下記ヘルパーで子要素を走査
+                hdr_cells[i].text = cell_text
+                # ヘッダーは太字
+                for p in hdr_cells[i].paragraphs:
+                    for r in p.runs:
+                        r.bold = True
+        else:
+            # ヘッダーなし → 空の見出し行を作るだけ
+            pass
 
-        # データ行
-        for row_data in cells:
-            row_cells = table.add_row().cells
-            for col_idx, cell_ast in enumerate(row_data):
-                txt = self._extract_text(cell_ast)
-                row_cells[col_idx].text = txt
+        # (2) テーブルボディの描画
+        if table_cell and table_cell.get('children'):
+            for row_ast in table_cell['children']:
+                # row_ast: { 'type': 'table_row', 'children': [ ... table_cell ... ] }
+                if row_ast.get('type') != 'table_row':
+                    continue
+                
+                # 新規行を追加
+                row_cells = table.add_row().cells
+                for col_idx, cell_ast in enumerate(row_ast.get('children', [])):
+                    cell_text = self._extract_text(cell_ast)
+                    row_cells[col_idx].text = cell_text
+        else:
+            # 本文なし
+            pass
 
     #######################################################
     # テキスト抽出用のヘルパー
@@ -278,9 +332,6 @@ def generate_word_file(
     3. Wordファイルを保存し、FileResponseで返却 (後処理でファイル削除)
     """
     
-    logging.info(f"[generate_word_file] Received summaries: {summaries}")
-    logging.info(f"[generate_word_file] Received valuation_data: {valuation_data}")
-
     ########################################
     # 1) Wordドキュメント作成
     ########################################
@@ -329,7 +380,6 @@ def generate_word_file(
         cat_run.font.size = Pt(16)
         cat_run.bold = True
         
-        logging.info(f"Section={sections}: {summaries}")
 
         # 各セクション
         for idx, (sec_key, sec_text) in enumerate(sections.items(), start=1):
@@ -348,9 +398,6 @@ def generate_word_file(
             #   state は省略可・または {} などでOK
             docx_renderer.render(tokens, state={})
             
-            # ast_data = md_parser.parse(sec_text)
-            logging.info(f"Parsed AST for section=sec_key: {sec_key}")
-            logging.info(f"Parsed AST for text=sec_text: {sec_text}")
 
 
 

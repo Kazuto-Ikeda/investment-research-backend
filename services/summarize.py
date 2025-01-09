@@ -40,20 +40,53 @@ BLOB_CONTAINER_NAME = os.getenv("BLOB_CONTAINER_NAME")
 
 client = OpenAI(api_key = OPENAI_API_KEY)
 
-def clean_text(markdown_text: str) -> str:
+# ====================================
+# Perplexity用クリーンアップ関数
+# ====================================
+def clean_text_perplexity(markdown_text: str) -> str:
     """
-    テキストから注釈や特定の記号を削除する関数
+    テキストから注釈や特定の記号を削除する関数 (Perplexity用)
+    従来の処理をそのまま踏襲
     """
     # 段落を改行で分割
     text = re.sub(r'\n{2,}', '\n\n', markdown_text)
-    # # リスト項目の前に改行を追加
-    # text = re.sub(r'^\s*[\*\-\+]\s+', '\n- ', text, flags=re.MULTILINE)
     # 注釈（例: [1][3]）を削除
     text = re.sub(r'\[\d+\]', '', text)
-    # # すべての#を削除
-    # text = text.replace('#', '')
     # 太字のマークダウン記号 ** を削除
     text = text.replace('**', '')
+    return text
+
+# ====================================
+# ChatGPT用クリーンアップ関数
+# ====================================
+def clean_text_chatgpt(markdown_text: str) -> str:
+    """
+    ChatGPTの結果用クリーンアップ関数
+    - 改行(\n\n)を1つ減らす
+    - 太字マークダウン ** は残す
+    - 注釈([1][2]など)は削除
+    """
+    # ダブル改行をシングル改行へ
+    text = re.sub(r'\n{2,}', '\n', markdown_text)
+    # 注釈（例: [1][3]）を削除
+    text = re.sub(r'\[\d+\]', '', text)
+    # ** は削除しない → 残したままフロントで処理
+    return text
+
+# def clean_text(markdown_text: str) -> str:
+#     """
+#     テキストから注釈や特定の記号を削除する関数
+#     """
+#     # 段落を改行で分割
+#     text = re.sub(r'\n{2,}', '\n\n', markdown_text)
+#     # # リスト項目の前に改行を追加
+#     # text = re.sub(r'^\s*[\*\-\+]\s+', '\n- ', text, flags=re.MULTILINE)
+#     # 注釈（例: [1][3]）を削除
+#     text = re.sub(r'\[\d+\]', '', text)
+#     # # すべての#を削除
+#     # text = text.replace('#', '')
+#     # 太字のマークダウン記号 ** を削除
+#     text = text.replace('**', '')
     
     return text
 
@@ -151,7 +184,7 @@ def summary_from_speeda(category: str, prompt: str) -> str:
             logging.info(f"{prompt}のChatGPT要約結果: {chatgpt_summary}")
             
             #テキストのクリーンアップ
-            cleaned_chatgpt_summary = clean_text(chatgpt_summary)
+            cleaned_chatgpt_summary = clean_text_chatgpt(chatgpt_summary)
             logging.info(f"クリーンアップ後のChatGPT要約結果: {cleaned_chatgpt_summary}")
             
             # #マークダウンの適用
@@ -214,7 +247,7 @@ def perplexity_search(prompt: str) -> str:
         perplexity_summary = data["choices"][0]["message"]["content"]  # 修正箇所
         
         #テキストクリーンアップ
-        cleaned_perplexity_summary = clean_text(perplexity_summary)
+        cleaned_perplexity_summary = clean_text_perplexity(perplexity_summary)
         # # Markdown変換とサニタイズ
         # markdown_perplexity_summary = convert_markdown_to_html(cleaned_perplexity_summary)
         return cleaned_perplexity_summary
