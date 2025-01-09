@@ -49,7 +49,7 @@ class DocxRenderer(mistune.AstRenderer):
                 self._render_paragraph(token)
                 logging.info(f"Test excusion=: {node_type}")
             elif node_type == 'list':
-                self._render_list(token, level=0)
+                self._render_list(token, level=1)
                 logging.info(f"Test excusion=: {node_type}")
             elif node_type == 'blockquote':
                 self._render_blockquote(token)
@@ -91,7 +91,7 @@ class DocxRenderer(mistune.AstRenderer):
             fsize = Pt(16)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         else:
-            fsize = Pt(14)
+            fsize = Pt(12)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
         # heading は基本的に太字
@@ -138,7 +138,7 @@ class DocxRenderer(mistune.AstRenderer):
     #######################################################
     # list + list_item (入れ子対応)
     #######################################################
-    def _render_list(self, token, level=0):
+    def _render_list(self, token, level=1):
         """
         token例:
           {
@@ -337,7 +337,7 @@ def generate_word_file(
             sec_para = document.add_paragraph(f"{idx}. {sec_jp}")
             sec_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
             sec_run = sec_para.runs[0]
-            sec_run.font.size = Pt(14)
+            sec_run.font.size = Pt(12)
             sec_run.bold = True
 
             # Markdown → Word
@@ -375,7 +375,7 @@ def generate_word_file(
             for p_ in c_.paragraphs:
                 for r_ in p_.runs:
                     r_.font.bold = True
-                    r_.font.size = Pt(11)
+                    r_.font.size = Pt(10)
 
         # データ行追加
         for label_, val_obj in valuation_data.items():
@@ -412,156 +412,3 @@ def generate_word_file(
     )
     
 
-############################################
-# 以下fix前
-
-    
-# def delete_file(path: str):
-#     try:
-#         os.remove(path)
-#         logging.info(f"ファイル {path} を削除しました。")
-#     except Exception as e:
-#         logging.error(f"ファイル削除エラー: {e}")
-
-
-# def generate_word_file(
-#     background_tasks: BackgroundTasks,
-#     summaries: dict = Body(..., description="要約データを含む辞書形式の入力"),
-#     valuation_data: dict = Body(None, description="バリュエーションデータ（オプション）"),
-#     company_name: str = Query(..., description="会社名を指定"),
-#     file_name: str = Query(None, description="生成するWordファイル名 (省略可能)")
-# ) -> FileResponse:
-#     """
-#     受け取った要約データおよびバリュエーションデータをWordドキュメントへ
-#     """
-#     # キーマッピングの定義
-#     reverse_key_mapping = {
-#         "current_situation": "現状",
-#         "future_outlook": "将来性と課題",
-#         "investment_advantages": "競合と差別化",
-#         "investment_disadvantages": "Exit先検討",
-#         "value_up": "バリューアップ施策",
-#         "use_case": "M&A事例",
-#         "swot_analysis": "SWOT分析",
-#     }
-
-#     # カテゴリのマッピング（必要に応じて）
-#     category_mapping = {
-#         "Perplexity": "Perplexity 分析",
-#         "ChatGPT": "ChatGPT+SPEEDA 分析",
-#     }
-
-#     # 動的ファイル名の設定
-#     file_name = file_name or f"{company_name}_summary_report.docx"
-
-#     # Wordドキュメントを作成
-#     document = Document()
-
-#     # タイトルを追加（level1=18pt）
-#     title = document.add_paragraph(f"{company_name} - 要約レポート")
-#     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-#     run = title.runs[0]
-#     run.font.size = Pt(18)
-#     run.bold = True
-
-#     # 1) summaries をカテゴリ (Perplexity, ChatGPT...) ごとに処理
-#     for main_category, sections in summaries.items():
-#         # カテゴリ見出し
-#         jap_category = category_mapping.get(main_category, main_category)
-#         cat_heading = document.add_paragraph(jap_category)
-#         cat_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-#         cat_run = cat_heading.runs[0]
-#         cat_run.font.size = Pt(16)
-#         cat_run.bold = True
-
-#         # カテゴリ配下の各セクション
-#         for idx, (sec_key, sec_content) in enumerate(sections.items(), start=1):
-#             # セクション見出し
-#             jap_section = reverse_key_mapping.get(sec_key, sec_key)
-#             sec_heading = document.add_paragraph(f"{idx}. {jap_section}")
-#             sec_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-#             heading_run = sec_heading.runs[0]
-#             heading_run.font.size = Pt(14)
-#             heading_run.bold = True
-
-#             # # セクション本文（Markdown からテーブルを抽出してみる）
-#             # raw_text = sec_content or "内容がありません"
-#             # tables = parse_markdown_table(raw_text)
-
-#             # if tables:
-#             #     # テーブルが見つかった場合は表として追加
-#             #     for table_data in tables:
-#             #         add_table_to_document(document, table_data)
-#             #         document.add_paragraph()  # 表の後に空白段落を追加
-
-#             #     # テーブル部分を除いた残りのテキストが欲しい場合は、
-#             #     # 追加のロジックで "表以外" を抜き出す必要がある。
-#             #     # シンプルに全体を段落に入れたい時は clean_text して段落にする:
-#             #     #  paragraph = document.add_paragraph(clean_text(raw_text), style='Normal')
-#             # else:
-#             #     # テーブルが無ければ普通の文章として処理
-#             #     paragraph = document.add_paragraph(clean_text(raw_text), style='Normal')
-#             #     paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-
-#     # バリュエーションデータを表形式で追加
-#     if valuation_data:
-#         # バリュエーション見出しを追加（level2=16pt）
-#         valuation_heading = document.add_paragraph("バリュエーション")
-#         valuation_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-#         run = valuation_heading.runs[0]
-#         run.font.size = Pt(16)
-#         run.bold = True
-
-#         # テーブルの作成
-#         table = document.add_table(rows=1, cols=3)
-#         table.style = 'Table Grid'
-
-#         # ヘッダー行の設定
-#         hdr_cells = table.rows[0].cells
-#         hdr_cells[0].text = '項目'
-#         hdr_cells[1].text = '直近実績'
-#         hdr_cells[2].text = '進行期見込'
-
-#         # ヘッダーのフォーマット
-#         for cell in hdr_cells:
-#             for paragraph in cell.paragraphs:
-#                 for run in paragraph.runs:
-#                     run.font.bold = True
-#                     run.font.size = Pt(11)
-
-#         # バリュエーションデータの追加（番号なし）
-#         for key, value in valuation_data.items():
-#             row_cells = table.add_row().cells
-#             row_cells[0].text = key  # 番号付与を削除
-
-#             # Set the current and forecast values
-#             if isinstance(value, dict):
-#                 row_cells[1].text = value.get('current', '不明')
-#                 row_cells[2].text = value.get('forecast', '不明')
-#             else:
-#                 row_cells[1].text = str(value)
-#                 row_cells[2].text = '不明'
-
-#             # セルのフォーマット（バレットポイントなし）
-#             for cell in row_cells:
-#                 for paragraph in cell.paragraphs:
-#                     paragraph.style = document.styles['Normal']  # バレットポイントを削除
-#                     for run in paragraph.runs:
-#                         run.font.size = Pt(10)
-          
-#     # ファイル保存ディレクトリの設定
-#     output_dir = "output"
-#     os.makedirs(output_dir, exist_ok=True)
-#     output_path = os.path.join(output_dir, file_name)
-#     document.save(output_path)
-
-#     # ダウンロード後にファイルを削除
-#     background_tasks.add_task(delete_file, output_path)
-
-#     # 生成されたWordファイルを返却
-#     return FileResponse(
-#         output_path,
-#         filename=file_name,
-#         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-#     )
