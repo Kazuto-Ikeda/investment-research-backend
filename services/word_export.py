@@ -11,6 +11,8 @@ import mistune
 from mistune import Markdown
 from mistune import create_markdown
 from mistune.plugins import plugin_table
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 
 
@@ -83,7 +85,7 @@ class DocxRenderer(mistune.AstRenderer):
             fsize = Pt(16)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         else:
-            fsize = Pt(14)
+            fsize = Pt(12)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
         # heading は基本的に太字
@@ -130,6 +132,30 @@ class DocxRenderer(mistune.AstRenderer):
     #######################################################
     # list + list_item (入れ子対応)
     #######################################################
+    
+    def _restart_numbering(self, paragraph, level=0, num_id=1):
+        """
+        指定した段落を num_id で与えられるリスト定義に属する段落として設定し、
+        レベル(level) も設定する。結果的にその段落の番号付けを再スタートできる。
+        """
+        p = paragraph._p  # 段落の内部オブジェクト
+        pPr = p.get_or_add_pPr()  
+        numPr = pPr.get_or_add_numPr()
+
+        # 既存の <w:ilvl> や <w:numId> があれば一旦削除（上書き）しておく方が確実
+        for child in numPr.iterchildren():
+            numPr.remove(child)
+
+        # <w:ilvl w:val="0"/> のように書き込む
+        ilvl = OxmlElement('w:ilvl')
+        ilvl.set(qn('w:val'), str(level))
+        numPr.append(ilvl)
+
+        # <w:numId w:val="1"/> のように書き込む
+        numId_elm = OxmlElement('w:numId')
+        numId_elm.set(qn('w:val'), str(num_id))
+        numPr.append(numId_elm)
+
     def _render_list(self, token, level=1):
         """
         token例:
@@ -139,13 +165,22 @@ class DocxRenderer(mistune.AstRenderer):
             'children': [...list_item... or nested list...]
           }
         """
+        # 新しいorderedリストが始まるタイミングでだけ、numId=1でリセット
         ordered = token.get('ordered', False)
+        if ordered:
+            # ダミー段落を作って番号リセットだけ行い、すぐ削除する手もある
+            dummy_para = self.document.add_paragraph(style='List Number')
+            # self._restart_numbering(dummy_para, 0, 1)
+            dummy_para._element.getparent().remove(dummy_para._element)
+            
+        
         for child in token.get('children', []):
             if child['type'] == 'list_item':
                 self._render_list_item(child, ordered, level)
             elif child['type'] == 'list':
                 # 入れ子リスト
                 self._render_list(child, level=level+1)
+                
 
     def _render_list_item(self, token, ordered, level):
         """
@@ -155,6 +190,11 @@ class DocxRenderer(mistune.AstRenderer):
         self.current_paragraph = self.document.add_paragraph(style=style)
         # levelに応じてインデントを増やす例 (0.5cm * level)
         self.current_paragraph.paragraph_format.left_indent = Cm(0.5 * level)
+        
+        # ★新しい“番号付きリスト”を開始したいタイミングならば、ここで restart_numbering を呼ぶ
+        if ordered:
+            # たとえば「段落が変わったら常に numId=1 で再スタートする」という例
+            self._restart_numbering(self.current_paragraph, level=0, num_id=1)
 
         # list_item内の要素を処理
         for child in token.get('children', []):
