@@ -88,8 +88,8 @@ class DocxRenderer(mistune.AstRenderer):
             run.font.size = fsize
             run.bold = True
 
-        # ★この見出しの直後からリストが始まった場合に 1から振り直したい場合
-        self._reset_numbering_for_next_list = True
+        # # ★この見出しの直後からリストが始まった場合に 1から振り直したい場合
+        # self._reset_numbering_for_next_list = True
 
     #######################################################
     # paragraph (段落)
@@ -124,56 +124,94 @@ class DocxRenderer(mistune.AstRenderer):
     #######################################################
     # list + list_item (入れ子対応)
     #######################################################
-    def _restart_numbering(self, paragraph, level=0, num_id=1):
-        """
-        指定した段落を num_id で与えられるリスト定義に属する段落として設定し、
-        レベル(level) も設定する。結果的にその段落の番号付けを再スタートできる。
-        """
-        p = paragraph._p  # 段落の内部オブジェクト
-        pPr = p.get_or_add_pPr()  
-        numPr = pPr.get_or_add_numPr()
+    # def _restart_numbering(self, paragraph, level=0, num_id=1):
+    #     """
+    #     指定した段落を num_id で与えられるリスト定義に属する段落として設定し、
+    #     レベル(level) も設定する。結果的にその段落の番号付けを再スタートできる。
+    #     """
+    #     p = paragraph._p  # 段落の内部オブジェクト
+    #     pPr = p.get_or_add_pPr()  
+    #     numPr = pPr.get_or_add_numPr()
 
-        # 既存の <w:ilvl> や <w:numId> を削除
-        for child in numPr.iterchildren():
-            numPr.remove(child)
+    #     # 既存の <w:ilvl> や <w:numId> を削除
+    #     for child in numPr.iterchildren():
+    #         numPr.remove(child)
 
-        # <w:ilvl w:val="0"/>
-        ilvl = OxmlElement('w:ilvl')
-        ilvl.set(qn('w:val'), str(level))
-        numPr.append(ilvl)
+    #     # <w:ilvl w:val="0"/>
+    #     ilvl = OxmlElement('w:ilvl')
+    #     ilvl.set(qn('w:val'), str(level))
+    #     numPr.append(ilvl)
 
-        # <w:numId w:val="1"/>
-        numId_elm = OxmlElement('w:numId')
-        numId_elm.set(qn('w:val'), str(num_id))
-        numPr.append(numId_elm)
-
-
+    #     # <w:numId w:val="1"/>
+    #     numId_elm = OxmlElement('w:numId')
+    #     numId_elm.set(qn('w:val'), str(num_id))
+    #     numPr.append(numId_elm)
+        
+        
     def _render_list(self, token, level=1):
-        ordered = token.get('ordered', False)
+    # ここでも ordered は読み取るが、無視してOK
+    # すべてバレットに固定するなら処理は変わらず
+    # いちおう ordered = token.get('ordered', False) を残してもいい
         for child in token.get('children', []):
             if child['type'] == 'list_item':
-                self._render_list_item(child, ordered, level)
+                # 引数の ordered は渡す必要なくなるが、そのままでも可
+                self._render_list_item(child, False, level)
             elif child['type'] == 'list':
                 self._render_list(child, level=level+1)
 
+
+    # def _render_list(self, token, level=1):
+    #     ordered = token.get('ordered', False)
+    #     for child in token.get('children', []):
+    #         if child['type'] == 'list_item':
+    #             self._render_list_item(child, ordered, level)
+    #         elif child['type'] == 'list':
+    #             self._render_list(child, level=level+1)
+
+    # def _render_list_item(self, token, ordered, level):
+    #     """
+    #     list_item: { 'type':'list_item', 'children':[...] }
+    #     """
+    #     style = 'List Number' if ordered else 'List Bullet'
+    #     self.current_paragraph = self.document.add_paragraph(style=style)
+    #     self.current_paragraph.paragraph_format.left_indent = Cm(0.5 * level)
+
+    #     # ★「見出しの直後の最初の orderedリスト（番号リスト）」でリセットしたい場合
+    #     #   ここでは「最初の“番号付き”list_item が来たらリセット」のロジックにしています。
+    #     if ordered and self._reset_numbering_for_next_list:
+    #         # 引数を位置引数だけにするか、キーワードだけにするかで
+    #         # "got multiple values for argument" エラーを回避
+    #         # ここでは位置引数を使って呼ぶ例に統一
+    #         self._restart_numbering(self.current_paragraph, 0, 1)
+
+    #         # リセットは1回だけ
+    #         self._reset_numbering_for_next_list = False
+
+    #     # list_item内の要素を処理
+    #     for child in token.get('children', []):
+    #         ctype = child['type']
+    #         if ctype == 'paragraph':
+    #             inline_nodes = child.get('children', [])
+    #             self._render_inline_children(inline_nodes)
+    #         elif ctype == 'list':
+    #             self._render_list(child, level=level+1)
+    #         else:
+    #             txt = self._extract_text(child)
+    #             self.current_paragraph.add_run(txt)
+    
     def _render_list_item(self, token, ordered, level):
         """
         list_item: { 'type':'list_item', 'children':[...] }
         """
-        style = 'List Number' if ordered else 'List Bullet'
+        # ☆ 常に箇条書きスタイルに固定
+        style = 'List Bullet'
         self.current_paragraph = self.document.add_paragraph(style=style)
         self.current_paragraph.paragraph_format.left_indent = Cm(0.5 * level)
 
-        # ★「見出しの直後の最初の orderedリスト（番号リスト）」でリセットしたい場合
-        #   ここでは「最初の“番号付き”list_item が来たらリセット」のロジックにしています。
-        if ordered and self._reset_numbering_for_next_list:
-            # 引数を位置引数だけにするか、キーワードだけにするかで
-            # "got multiple values for argument" エラーを回避
-            # ここでは位置引数を使って呼ぶ例に統一
-            self._restart_numbering(self.current_paragraph, 0, 1)
-
-            # リセットは1回だけ
-            self._reset_numbering_for_next_list = False
+        # ☆ 数字リセット機能は不要なので削除または無効化
+        # if ordered and self._reset_numbering_for_next_list:
+        #     self._restart_numbering(self.current_paragraph, 0, 1)
+        #     self._reset_numbering_for_next_list = False
 
         # list_item内の要素を処理
         for child in token.get('children', []):
@@ -350,7 +388,7 @@ def generate_word_file(
     file_name = f"{company_name}_summary_report.docx"
     document = Document()
     
-    # ドキュメントのデフォルトフォントを設定
+        # ドキュメントのデフォルトフォントを設定
     style = document.styles['Normal']
     font = style.font
     font.name = 'Noto Sans JP'
