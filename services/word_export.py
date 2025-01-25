@@ -35,6 +35,9 @@ class DocxRenderer(mistune.AstRenderer):
         super().__init__()
         self.document = document
         self.current_paragraph = None  # 処理中の段落オブジェクト
+        self._reset_numbering_for_next_list = False
+        
+
 
     def render(self, tokens, state):
         """
@@ -45,39 +48,30 @@ class DocxRenderer(mistune.AstRenderer):
             if node_type == 'heading':
                 self._render_heading(token)
             elif node_type == 'paragraph':
-                self._render_paragraph(token)
+                self.current_paragraph = self.document.add_paragraph()
+                inline_children = token.get('children', [])
+                self._render_inline_children(inline_children)
             elif node_type == 'list':
                 self._render_list(token, level=1)
-            elif node_type == 'blockquote':
-                self._render_blockquote(token)
-            elif node_type == 'thematic_break':
-                self._render_thematic_break(token)
             elif node_type == 'table':
                 self._render_table(token)
             else:
                 logging.debug(f"[DocxRenderer] Skip unknown node: {node_type}")
         return ''  # 文字列は返さず、Word文書に直接書き込む
 
-    
 
     #######################################################
     # heading (見出し)
     #######################################################
     def _render_heading(self, token):
         """
-        token例:
-          {
-            'type': 'heading',
-            'level': 1..6,
-            'children': [...]
-          }
+        見出しを描画し、描画後に「次のリストは番号をリセットする」フラグを立てる。
         """
         level = token['level']
         children = token.get('children', [])
 
         self.current_paragraph = self.document.add_paragraph()
 
-        # heading レベル別にフォントサイズや整列を切り替え
         if level == 1:
             fsize = Pt(18)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -85,15 +79,17 @@ class DocxRenderer(mistune.AstRenderer):
             fsize = Pt(16)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         else:
-            fsize = Pt(12)
+            fsize = Pt(14)
             self.current_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-        # heading は基本的に太字
         for child in children:
             txt = self._extract_text(child)
             run = self.current_paragraph.add_run(txt)
             run.font.size = fsize
             run.bold = True
+
+        # ★この見出しの直後からリストが始まった場合に 1から振り直したい場合
+        self._reset_numbering_for_next_list = True
 
     #######################################################
     # paragraph (段落)
@@ -109,9 +105,6 @@ class DocxRenderer(mistune.AstRenderer):
         self._render_inline_children(inline_children)
 
     def _render_inline_children(self, children):
-        """
-        段落内に複数の Run を生成し、強調(strong,emphasis)などを適宜反映
-        """
         for node in children:
             ntype = node['type']
             if ntype == 'text':
@@ -125,14 +118,12 @@ class DocxRenderer(mistune.AstRenderer):
                 run = self.current_paragraph.add_run(txt)
                 run.italic = True
             else:
-                # link/codespanなどの実装は要件に応じて追加
                 txt = self._extract_text(node)
                 run = self.current_paragraph.add_run(txt)
 
     #######################################################
     # list + list_item (入れ子対応)
     #######################################################
-    
     def _restart_numbering(self, paragraph, level=0, num_id=1):
         """
         指定した段落を num_id で与えられるリスト定義に属する段落として設定し、
@@ -142,45 +133,28 @@ class DocxRenderer(mistune.AstRenderer):
         pPr = p.get_or_add_pPr()  
         numPr = pPr.get_or_add_numPr()
 
-        # 既存の <w:ilvl> や <w:numId> があれば一旦削除（上書き）しておく方が確実
+        # 既存の <w:ilvl> や <w:numId> を削除
         for child in numPr.iterchildren():
             numPr.remove(child)
 
-        # <w:ilvl w:val="0"/> のように書き込む
+        # <w:ilvl w:val="0"/>
         ilvl = OxmlElement('w:ilvl')
         ilvl.set(qn('w:val'), str(level))
         numPr.append(ilvl)
 
-        # <w:numId w:val="1"/> のように書き込む
+        # <w:numId w:val="1"/>
         numId_elm = OxmlElement('w:numId')
         numId_elm.set(qn('w:val'), str(num_id))
         numPr.append(numId_elm)
 
+
     def _render_list(self, token, level=1):
-        """
-        token例:
-          {
-            'type': 'list',
-            'ordered': True/False,
-            'children': [...list_item... or nested list...]
-          }
-        """
-        # 新しいorderedリストが始まるタイミングでだけ、numId=1でリセット
         ordered = token.get('ordered', False)
-        if ordered:
-            # ダミー段落を作って番号リセットだけ行い、すぐ削除する手もある
-            dummy_para = self.document.add_paragraph(style='List Number')
-            # self._restart_numbering(dummy_para, 0, 1)
-            dummy_para._element.getparent().remove(dummy_para._element)
-            
-        
         for child in token.get('children', []):
             if child['type'] == 'list_item':
                 self._render_list_item(child, ordered, level)
             elif child['type'] == 'list':
-                # 入れ子リスト
                 self._render_list(child, level=level+1)
-                
 
     def _render_list_item(self, token, ordered, level):
         """
@@ -188,27 +162,31 @@ class DocxRenderer(mistune.AstRenderer):
         """
         style = 'List Number' if ordered else 'List Bullet'
         self.current_paragraph = self.document.add_paragraph(style=style)
-        # levelに応じてインデントを増やす例 (0.5cm * level)
         self.current_paragraph.paragraph_format.left_indent = Cm(0.5 * level)
-        
-        # ★新しい“番号付きリスト”を開始したいタイミングならば、ここで restart_numbering を呼ぶ
-        if ordered:
-            # たとえば「段落が変わったら常に numId=1 で再スタートする」という例
-            self._restart_numbering(self.current_paragraph, level=0, num_id=1)
+
+        # ★「見出しの直後の最初の orderedリスト（番号リスト）」でリセットしたい場合
+        #   ここでは「最初の“番号付き”list_item が来たらリセット」のロジックにしています。
+        if ordered and self._reset_numbering_for_next_list:
+            # 引数を位置引数だけにするか、キーワードだけにするかで
+            # "got multiple values for argument" エラーを回避
+            # ここでは位置引数を使って呼ぶ例に統一
+            self._restart_numbering(self.current_paragraph, 0, 1)
+
+            # リセットは1回だけ
+            self._reset_numbering_for_next_list = False
 
         # list_item内の要素を処理
         for child in token.get('children', []):
             ctype = child['type']
             if ctype == 'paragraph':
-                # リスト項目の段落
                 inline_nodes = child.get('children', [])
                 self._render_inline_children(inline_nodes)
             elif ctype == 'list':
-                # さらに入れ子のリスト
                 self._render_list(child, level=level+1)
             else:
                 txt = self._extract_text(child)
                 self.current_paragraph.add_run(txt)
+
 
     #######################################################
     # blockquote (引用)
@@ -335,15 +313,11 @@ class DocxRenderer(mistune.AstRenderer):
     # テキスト抽出用のヘルパー
     #######################################################
     def _extract_text(self, node):
-        """
-        子ノードを再帰的に走査してテキストを連結
-        strong/emphasis等の見出しはここでは単なるテキストとして結合
-        """
         if 'text' in node:
             return node['text']
         elif 'children' in node:
             return ''.join(self._extract_text(child) for child in node['children'])
-        return ''  # 該当なし
+        return ''
 
 def delete_file(path: str):
     """
@@ -375,6 +349,12 @@ def generate_word_file(
     
     file_name = f"{company_name}_summary_report.docx"
     document = Document()
+    
+    # ドキュメントのデフォルトフォントを設定
+    style = document.styles['Normal']
+    font = style.font
+    font.name = 'Noto Sans JP'
+    font.element.rPr.rFonts.set(qn('w:eastAsia'), 'Noto Sans JP')
 
     # タイトル段落
     title_para = document.add_paragraph(f"{company_name} - 要約レポート")
