@@ -105,9 +105,6 @@ class DocxRenderer(mistune.AstRenderer):
     # heading (見出し)
     #######################################################
     def _render_heading(self, token):
-        """
-        見出しを描画し、見出し直後のorderedリストで番号リセットするためのフラグを立てる。
-        """
         level = token['level']
         children = token.get('children', [])
         self.current_paragraph = self.document.add_paragraph()
@@ -191,26 +188,17 @@ class DocxRenderer(mistune.AstRenderer):
     def _render_list_item(self, token, ordered, level):
         """
         list_item を描画する。
-        orderedの場合:
-           - 見出し直後の最初のorderedリストでは _restart_numbering() を利用して番号を再スタートさせる際、
-             現在のリストのインデントレベル (level) を指定する。
-           - それ以降は、_apply_custom_bullet() を用いて現在のレベルに応じたバレット記号を適用する。
-        unorderedの場合は List Bullet スタイルが適用される。
+        ※すべてバレットとして出力するため、ordered・unorderdにかかわらず List Bullet スタイルを利用します。
+        また、レベルに応じたカスタムバレットを適用します。
         """
-        if ordered:
-            style = 'List Number'
-        else:
-            style = 'List Bullet'
+        # 常にバレットスタイルで出力
+        style = 'List Bullet'
         self.current_paragraph = self.document.add_paragraph(style=style)
         self.current_paragraph.paragraph_format.left_indent = Cm(0.5 * level)
 
-        if ordered:
-            if self._reset_numbering_for_next_list:
-                # ★★【変更点】★★: レベルを現在の level で再スタートさせる
-                self._restart_numbering(self.current_paragraph, level=level, num_id=1)
-                self._reset_numbering_for_next_list = False
-            else:
-                DocxRenderer._apply_custom_bullet(self.current_paragraph, level=level, num_id=99)
+        # ※番号リストの再スタートは不要なので、常にカスタムバレットを適用
+        DocxRenderer._apply_custom_bullet(self.current_paragraph, level=level, num_id=99)
+
         for child in token.get('children', []):
             ctype = child['type']
             if ctype == 'paragraph':
@@ -222,13 +210,8 @@ class DocxRenderer(mistune.AstRenderer):
                 txt = self._extract_text(child)
                 self.current_paragraph.add_run(txt)
 
-    # ############### 変更点③： _restart_numbering の修正 ###############
+    # ############### 変更点③： _restart_numbering の修正（今回不要のためそのまま維持） ###############
     def _restart_numbering(self, paragraph, level=1, num_id=1):
-        """
-        指定した段落に対して、番号付けを num_id の定義に沿って設定し、
-        現在のレベル (level) を指定して番号付けを再スタートする。
-        level は1起点で指定します。
-        """
         p = paragraph._p
         pPr = p.get_or_add_pPr()
         numPr = pPr.get_or_add_numPr()
