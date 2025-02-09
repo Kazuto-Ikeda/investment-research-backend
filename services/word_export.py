@@ -14,36 +14,36 @@ from mistune.plugins import plugin_table
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-# ############### 追加部分：カスタムバレット番号定義の追加 ###############
+# ############### 変更点①：カスタムバレット番号定義の変更 ###############
 def add_custom_bullet_numbering(document, num_id=99):
     """
     カスタムの箇条書き番号定義を追加します。
     各インデントレベルごとに異なるバレット記号を設定します。
-    ここではレベル 0: "•", レベル 1: "◦", レベル 2: "▪" としています。
+    ここではレベル 1: "•", レベル 2: "◦", レベル 3: "▪" としています。
+    ※レベルを1から指定するように変更。
     """
-    # ### 変更箇所：内部XML要素 _element を利用して取得
     numbering = document.part.numbering_part._element
 
     # abstractNum 要素の作成
     abstract_num = OxmlElement('w:abstractNum')
     abstract_num.set(qn('w:abstractNumId'), '0')  # 固定の abstractNumId "0"
 
-    # 各レベルの設定（レベル 0～2 の例）
-    bullet_symbols = ['•', '◦', '▪']  # 追加するバレット記号
-    for lvl in range(3):
+    # 各レベルの設定（レベル 1～3 の例に変更）
+    bullet_symbols = ['•', '◦', '▪']  # バレット記号
+    for lvl in range(1, 4):  # 1～3
         lvl_element = OxmlElement('w:lvl')
-        lvl_element.set(qn('w:ilvl'), str(lvl))
+        lvl_element.set(qn('w:ilvl'), str(lvl))  # lvl は1から
 
         start = OxmlElement('w:start')
         start.set(qn('w:val'), '1')
         lvl_element.append(start)
 
         num_fmt = OxmlElement('w:numFmt')
-        num_fmt.set(qn('w:val'), 'bullet')  # bullet 表示にする
+        num_fmt.set(qn('w:val'), 'bullet')
         lvl_element.append(num_fmt)
 
         lvl_text = OxmlElement('w:lvlText')
-        lvl_text.set(qn('w:val'), bullet_symbols[lvl])
+        lvl_text.set(qn('w:val'), bullet_symbols[lvl - 1])  # インデックスは lvl-1
         lvl_element.append(lvl_text)
 
         lvl_jc = OxmlElement('w:lvlJc')
@@ -53,26 +53,23 @@ def add_custom_bullet_numbering(document, num_id=99):
         # インデント設定（例：レベル毎にインデントを増加）
         pPr = OxmlElement('w:pPr')
         ind = OxmlElement('w:ind')
-        ind.set(qn('w:left'), str(720 + 360 * lvl))  # 720 + 360*lvl
+        ind.set(qn('w:left'), str(720 + 360 * (lvl - 1)))  # lvl=1 → 720, lvl=2 → 1080, lvl=3 → 1440
         ind.set(qn('w:hanging'), '360')
         pPr.append(ind)
         lvl_element.append(pPr)
 
         abstract_num.append(lvl_element)
 
-    # abstractNum を numbering に追加（直接append()）
     numbering.append(abstract_num)
     abstract_num_id = abstract_num.get(qn('w:abstractNumId'))
 
-    # num 要素の作成
     num = OxmlElement('w:num')
     num.set(qn('w:numId'), str(num_id))
     abstract_num_ref = OxmlElement('w:abstractNumId')
     abstract_num_ref.set(qn('w:val'), str(abstract_num_id))
     num.append(abstract_num_ref)
     numbering.append(num)
-# ############### 追加部分ここまで ###############
-
+# ############### 変更点①ここまで ###############
 
 class DocxRenderer(mistune.AstRenderer):
     """
@@ -131,16 +128,12 @@ class DocxRenderer(mistune.AstRenderer):
             run.font.size = fsize
             run.bold = True
 
-        # 見出し直後のorderedリストで番号をリセットするためのフラグ
         self._reset_numbering_for_next_list = True
 
     #######################################################
     # paragraph (段落)
     #######################################################
     def _render_paragraph(self, token):
-        """
-        段落を描画する。
-        """
         logging.debug(f"_render_paragraph: {token}")
         self.current_paragraph = self.document.add_paragraph()
         inline_children = token.get('children', [])
@@ -167,9 +160,6 @@ class DocxRenderer(mistune.AstRenderer):
     # list + list_item (入れ子対応)
     #######################################################
     def _render_list(self, token, level=1):
-        """
-        リスト全体を描画する。ordered・unorderedに応じたスタイル設定を行う。
-        """
         ordered = token.get('ordered', False)
         for child in token.get('children', []):
             if child['type'] == 'list_item':
@@ -177,14 +167,15 @@ class DocxRenderer(mistune.AstRenderer):
             elif child['type'] == 'list':
                 self._render_list(child, level=level+1)
 
-    # ############### 追加部分： カスタムバレット適用用の静的メソッド ###############
+    # ############### 変更点②： カスタムバレット適用用の静的メソッド（levelはそのまま使用） ###############
     @staticmethod
-    def _apply_custom_bullet(paragraph, level=0, num_id=99):
+    def _apply_custom_bullet(paragraph, level=1, num_id=99):
         """
         指定した段落に対して、カスタム箇条書き番号定義（num_id=99）を適用し、
         インデントレベルに応じたバレット記号を設定します。
+        level は1起点で指定します。
         """
-        p = paragraph._p  # 内部のXMLオブジェクト
+        p = paragraph._p
         pPr = p.get_or_add_pPr()
         numPr = pPr.get_or_add_numPr()
         for child in list(numPr):
@@ -195,16 +186,16 @@ class DocxRenderer(mistune.AstRenderer):
         numId_elm = OxmlElement('w:numId')
         numId_elm.set(qn('w:val'), str(num_id))
         numPr.append(numId_elm)
-    # ############### 追加部分ここまで ###############
+    # ############### 変更点②ここまで ###############
 
     def _render_list_item(self, token, ordered, level):
         """
         list_item を描画する。
-        ・orderedの場合:
-           - 見出し直後の最初のorderedリストでは _restart_numbering() を利用して番号を再スタートさせるが、
-             このとき、レベルは現在のリストのインデントレベル (level) を指定する（※変更点）。
-           - その後は、_apply_custom_bullet() を用いて、現在のレベルに応じたバレット記号を適用する。
-        ・unorderedの場合は List Bullet スタイルが適用される。
+        orderedの場合:
+           - 見出し直後の最初のorderedリストでは _restart_numbering() を利用して番号を再スタートさせる際、
+             現在のリストのインデントレベル (level) を指定する。
+           - それ以降は、_apply_custom_bullet() を用いて現在のレベルに応じたバレット記号を適用する。
+        unorderedの場合は List Bullet スタイルが適用される。
         """
         if ordered:
             style = 'List Number'
@@ -215,13 +206,11 @@ class DocxRenderer(mistune.AstRenderer):
 
         if ordered:
             if self._reset_numbering_for_next_list:
-                # ★★【変更点】★★: レベルを固定0ではなく、現在の level を指定する
+                # ★★【変更点】★★: レベルを現在の level で再スタートさせる
                 self._restart_numbering(self.current_paragraph, level=level, num_id=1)
                 self._reset_numbering_for_next_list = False
             else:
                 DocxRenderer._apply_custom_bullet(self.current_paragraph, level=level, num_id=99)
-        # unorderedの場合はそのまま
-
         for child in token.get('children', []):
             ctype = child['type']
             if ctype == 'paragraph':
@@ -233,13 +222,14 @@ class DocxRenderer(mistune.AstRenderer):
                 txt = self._extract_text(child)
                 self.current_paragraph.add_run(txt)
 
-    # ############### 追加部分： _restart_numbering の復活 ###############
-    def _restart_numbering(self, paragraph, level=0, num_id=1):
+    # ############### 変更点③： _restart_numbering の修正 ###############
+    def _restart_numbering(self, paragraph, level=1, num_id=1):
         """
         指定した段落に対して、番号付けを num_id の定義に沿って設定し、
-        レベル (ilvl) も設定する。これにより、その段落の番号付けを再スタートする。
+        現在のレベル (level) を指定して番号付けを再スタートする。
+        level は1起点で指定します。
         """
-        p = paragraph._p  # 段落の内部XMLオブジェクト
+        p = paragraph._p
         pPr = p.get_or_add_pPr()
         numPr = pPr.get_or_add_numPr()
         for child in list(numPr):
@@ -250,15 +240,12 @@ class DocxRenderer(mistune.AstRenderer):
         numId_elm = OxmlElement('w:numId')
         numId_elm.set(qn('w:val'), str(num_id))
         numPr.append(numId_elm)
-    # ############### 追加部分ここまで ###############
+    # ############### 変更点③ここまで ###############
 
     #######################################################
     # blockquote (引用)
     #######################################################
     def _render_blockquote(self, token):
-        """
-        引用ブロックを描画する。スタイル 'Intense Quote' を適用する。
-        """
         self.current_paragraph = self.document.add_paragraph(style='Intense Quote')
         for child in token.get('children', []):
             if child['type'] == 'paragraph':
@@ -269,9 +256,6 @@ class DocxRenderer(mistune.AstRenderer):
     # thematic_break (水平線)
     #######################################################
     def _render_thematic_break(self, token):
-        """
-        区切り線として "--------" を追加する。
-        """
         hr_para = self.document.add_paragraph()
         hr_para.add_run('--------------').bold = True
 
@@ -279,9 +263,6 @@ class DocxRenderer(mistune.AstRenderer):
     # table (表)
     #######################################################
     def _render_table(self, token):
-        """
-        Mistune 2.x plugin_table で生成されたトークンに合わせたテーブルを描画する。
-        """
         table_head = None
         table_cell = None
         for child in token.get('children', []):
@@ -318,9 +299,6 @@ class DocxRenderer(mistune.AstRenderer):
                     for r in p.runs:
                         r.bold = True
                         r.font.size = Pt(10)
-        else:
-            pass
-
         if table_cell and table_cell.get('children'):
             for row_ast in table_cell['children']:
                 if row_ast.get('type') != 'table_row':
@@ -329,8 +307,6 @@ class DocxRenderer(mistune.AstRenderer):
                 for col_idx, cell_ast in enumerate(row_ast.get('children', [])):
                     cell_text = self._extract_text(cell_ast)
                     row_cells[col_idx].text = cell_text
-        else:
-            pass
 
     #######################################################
     # テキスト抽出用のヘルパー
@@ -343,9 +319,6 @@ class DocxRenderer(mistune.AstRenderer):
         return ''
 
 def delete_file(path: str):
-    """
-    FileResponse返却後にバックグラウンドで削除するための後処理
-    """
     try:
         os.remove(path)
         logging.info(f"[delete_file] Deleted file: {path}")
