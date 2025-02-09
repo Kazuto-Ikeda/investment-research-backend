@@ -14,34 +14,79 @@ from mistune.plugins import plugin_table
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
+# ############### 追加部分：カスタムバレット番号定義の追加 ###############
+def add_custom_bullet_numbering(document, num_id=99):
+    """
+    カスタムの箇条書き番号定義を追加します。
+    各インデントレベルごとに異なるバレット記号を設定します。
+    ここではレベル 0: "•", レベル 1: "◦", レベル 2: "▪" としています。
+    """
+    # ### 変更箇所：内部XML要素 _element を利用して取得
+    numbering = document.part.numbering_part._element
+
+    # abstractNum 要素の作成
+    abstract_num = OxmlElement('w:abstractNum')
+    abstract_num.set(qn('w:abstractNumId'), '0')  # 固定の abstractNumId "0"
+
+    # 各レベルの設定（レベル 0～2 の例）
+    bullet_symbols = ['•', '◦', '▪']  # 追加するバレット記号
+    for lvl in range(3):
+        lvl_element = OxmlElement('w:lvl')
+        lvl_element.set(qn('w:ilvl'), str(lvl))
+
+        start = OxmlElement('w:start')
+        start.set(qn('w:val'), '1')
+        lvl_element.append(start)
+
+        num_fmt = OxmlElement('w:numFmt')
+        num_fmt.set(qn('w:val'), 'bullet')  # bullet 表示にする
+        lvl_element.append(num_fmt)
+
+        lvl_text = OxmlElement('w:lvlText')
+        lvl_text.set(qn('w:val'), bullet_symbols[lvl])
+        lvl_element.append(lvl_text)
+
+        lvl_jc = OxmlElement('w:lvlJc')
+        lvl_jc.set(qn('w:val'), 'left')
+        lvl_element.append(lvl_jc)
+
+        # インデント設定（例：レベル毎にインデントを増加）
+        pPr = OxmlElement('w:pPr')
+        ind = OxmlElement('w:ind')
+        ind.set(qn('w:left'), str(720 + 360 * lvl))  # 720 + 360*lvl
+        ind.set(qn('w:hanging'), '360')
+        pPr.append(ind)
+        lvl_element.append(pPr)
+
+        abstract_num.append(lvl_element)
+
+    # abstractNum を numbering に追加（直接append()）
+    numbering.append(abstract_num)
+    abstract_num_id = abstract_num.get(qn('w:abstractNumId'))
+
+    # num 要素の作成
+    num = OxmlElement('w:num')
+    num.set(qn('w:numId'), str(num_id))
+    abstract_num_ref = OxmlElement('w:abstractNumId')
+    abstract_num_ref.set(qn('w:val'), str(abstract_num_id))
+    num.append(abstract_num_ref)
+    numbering.append(num)
+# ############### 追加部分ここまで ###############
 
 
 class DocxRenderer(mistune.AstRenderer):
     """
-    Mistune 2.x の AstRenderer を継承し、Markdown の AST を Python-docx で Word に変換。
-    
-    主な対応要素:
-      - 見出し(heading) -> Word段落+run（太字/フォントサイズ）
-      - 段落(paragraph) -> Word段落
-      - 箇条書き(list, list_item) -> List Bullet/Number スタイル, 入れ子リスト対応
-      - テーブル(table) -> plugin_table が生成したASTをそのまま受け取り、Word表に変換
-      - 強調(strong, emphasis) -> Runの bold/italic
-      - blockquote(引用), thematic_break(水平線) -> サンプル実装
-    
-    段落の途中で太字や斜体にしたい場合、Runを分割して追加しています。
+    Mistune 2.x の AstRenderer を継承し、Markdown の AST を Python‑docx で Word に変換するクラス。
     """
-
     def __init__(self, document: Document):
         super().__init__()
         self.document = document
         self.current_paragraph = None  # 処理中の段落オブジェクト
         self._reset_numbering_for_next_list = False
-        
-
 
     def render(self, tokens, state):
         """
-        AST全体を走査し、トークン種類に応じて _render_xxx() メソッドを呼び出す。
+        AST全体を走査し、各ノードに応じた描画メソッドを呼び出す。
         """
         for token in tokens:
             node_type = token['type']
@@ -57,19 +102,17 @@ class DocxRenderer(mistune.AstRenderer):
                 self._render_table(token)
             else:
                 logging.debug(f"[DocxRenderer] Skip unknown node: {node_type}")
-        return ''  # 文字列は返さず、Word文書に直接書き込む
-
+        return ''
 
     #######################################################
     # heading (見出し)
     #######################################################
     def _render_heading(self, token):
         """
-        見出しを描画し、描画後に「次のリストは番号をリセットする」フラグを立てる。
+        見出しを描画し、見出し直後のorderedリストで番号リセットするためのフラグを立てる。
         """
         level = token['level']
         children = token.get('children', [])
-
         self.current_paragraph = self.document.add_paragraph()
 
         if level == 1:
@@ -88,16 +131,15 @@ class DocxRenderer(mistune.AstRenderer):
             run.font.size = fsize
             run.bold = True
 
-        # # ★この見出しの直後からリストが始まった場合に 1から振り直したい場合
-        # self._reset_numbering_for_next_list = True
+        # 見出し直後のorderedリストで番号をリセットするためのフラグ
+        self._reset_numbering_for_next_list = True
 
     #######################################################
     # paragraph (段落)
     #######################################################
     def _render_paragraph(self, token):
         """
-        token例:
-          { 'type':'paragraph', 'children':[...inline elements...] }
+        段落を描画する。
         """
         logging.debug(f"_render_paragraph: {token}")
         self.current_paragraph = self.document.add_paragraph()
@@ -124,96 +166,61 @@ class DocxRenderer(mistune.AstRenderer):
     #######################################################
     # list + list_item (入れ子対応)
     #######################################################
-    # def _restart_numbering(self, paragraph, level=0, num_id=1):
-    #     """
-    #     指定した段落を num_id で与えられるリスト定義に属する段落として設定し、
-    #     レベル(level) も設定する。結果的にその段落の番号付けを再スタートできる。
-    #     """
-    #     p = paragraph._p  # 段落の内部オブジェクト
-    #     pPr = p.get_or_add_pPr()  
-    #     numPr = pPr.get_or_add_numPr()
-
-    #     # 既存の <w:ilvl> や <w:numId> を削除
-    #     for child in numPr.iterchildren():
-    #         numPr.remove(child)
-
-    #     # <w:ilvl w:val="0"/>
-    #     ilvl = OxmlElement('w:ilvl')
-    #     ilvl.set(qn('w:val'), str(level))
-    #     numPr.append(ilvl)
-
-    #     # <w:numId w:val="1"/>
-    #     numId_elm = OxmlElement('w:numId')
-    #     numId_elm.set(qn('w:val'), str(num_id))
-    #     numPr.append(numId_elm)
-        
-        
     def _render_list(self, token, level=1):
-    # ここでも ordered は読み取るが、無視してOK
-    # すべてバレットに固定するなら処理は変わらず
-    # いちおう ordered = token.get('ordered', False) を残してもいい
+        """
+        リスト全体を描画する。ordered・unorderedに応じたスタイル設定を行う。
+        """
+        ordered = token.get('ordered', False)
         for child in token.get('children', []):
             if child['type'] == 'list_item':
-                # 引数の ordered は渡す必要なくなるが、そのままでも可
-                self._render_list_item(child, False, level)
+                self._render_list_item(child, ordered, level)
             elif child['type'] == 'list':
                 self._render_list(child, level=level+1)
 
+    # ############### 追加部分： カスタムバレット適用用の静的メソッド ###############
+    @staticmethod
+    def _apply_custom_bullet(paragraph, level=0, num_id=99):
+        """
+        指定した段落に対して、カスタム箇条書き番号定義（num_id=99）を適用し、
+        インデントレベルに応じたバレット記号を設定します。
+        """
+        p = paragraph._p  # 内部のXMLオブジェクト
+        pPr = p.get_or_add_pPr()
+        numPr = pPr.get_or_add_numPr()
+        for child in list(numPr):
+            numPr.remove(child)
+        ilvl = OxmlElement('w:ilvl')
+        ilvl.set(qn('w:val'), str(level))
+        numPr.append(ilvl)
+        numId_elm = OxmlElement('w:numId')
+        numId_elm.set(qn('w:val'), str(num_id))
+        numPr.append(numId_elm)
+    # ############### 追加部分ここまで ###############
 
-    # def _render_list(self, token, level=1):
-    #     ordered = token.get('ordered', False)
-    #     for child in token.get('children', []):
-    #         if child['type'] == 'list_item':
-    #             self._render_list_item(child, ordered, level)
-    #         elif child['type'] == 'list':
-    #             self._render_list(child, level=level+1)
-
-    # def _render_list_item(self, token, ordered, level):
-    #     """
-    #     list_item: { 'type':'list_item', 'children':[...] }
-    #     """
-    #     style = 'List Number' if ordered else 'List Bullet'
-    #     self.current_paragraph = self.document.add_paragraph(style=style)
-    #     self.current_paragraph.paragraph_format.left_indent = Cm(0.5 * level)
-
-    #     # ★「見出しの直後の最初の orderedリスト（番号リスト）」でリセットしたい場合
-    #     #   ここでは「最初の“番号付き”list_item が来たらリセット」のロジックにしています。
-    #     if ordered and self._reset_numbering_for_next_list:
-    #         # 引数を位置引数だけにするか、キーワードだけにするかで
-    #         # "got multiple values for argument" エラーを回避
-    #         # ここでは位置引数を使って呼ぶ例に統一
-    #         self._restart_numbering(self.current_paragraph, 0, 1)
-
-    #         # リセットは1回だけ
-    #         self._reset_numbering_for_next_list = False
-
-    #     # list_item内の要素を処理
-    #     for child in token.get('children', []):
-    #         ctype = child['type']
-    #         if ctype == 'paragraph':
-    #             inline_nodes = child.get('children', [])
-    #             self._render_inline_children(inline_nodes)
-    #         elif ctype == 'list':
-    #             self._render_list(child, level=level+1)
-    #         else:
-    #             txt = self._extract_text(child)
-    #             self.current_paragraph.add_run(txt)
-    
     def _render_list_item(self, token, ordered, level):
         """
-        list_item: { 'type':'list_item', 'children':[...] }
+        list_item を描画する。
+        ・orderedの場合:
+           - 見出し直後の最初のorderedリストでは _restart_numbering() により番号を1からリセットする。
+           - それ以降は、_apply_custom_bullet() によりカスタム番号定義を適用する。
+        ・unorderedの場合は List Bullet スタイルが適用される。
         """
-        # ☆ 常に箇条書きスタイルに固定
-        style = 'List Bullet'
+        if ordered:
+            style = 'List Number'
+        else:
+            style = 'List Bullet'
         self.current_paragraph = self.document.add_paragraph(style=style)
         self.current_paragraph.paragraph_format.left_indent = Cm(0.5 * level)
 
-        # ☆ 数字リセット機能は不要なので削除または無効化
-        # if ordered and self._reset_numbering_for_next_list:
-        #     self._restart_numbering(self.current_paragraph, 0, 1)
-        #     self._reset_numbering_for_next_list = False
+        if ordered:
+            if self._reset_numbering_for_next_list:
+                self._restart_numbering(self.current_paragraph, level=0, num_id=1)
+                self._reset_numbering_for_next_list = False
+            else:
+                # ordered リストの場合、カスタム番号定義を適用
+                DocxRenderer._apply_custom_bullet(self.current_paragraph, level=level, num_id=99)
+        # unorderedの場合は何もせずそのまま
 
-        # list_item内の要素を処理
         for child in token.get('children', []):
             ctype = child['type']
             if ctype == 'paragraph':
@@ -225,13 +232,31 @@ class DocxRenderer(mistune.AstRenderer):
                 txt = self._extract_text(child)
                 self.current_paragraph.add_run(txt)
 
+    # ############### 追加部分： _restart_numbering の復活 ###############
+    def _restart_numbering(self, paragraph, level=0, num_id=1):
+        """
+        指定した段落に対して、番号付けを num_id の定義に沿って設定し、
+        レベル (ilvl) も設定する。これにより、その段落の番号付けを1から再スタートする。
+        """
+        p = paragraph._p  # 段落の内部XMLオブジェクト
+        pPr = p.get_or_add_pPr()
+        numPr = pPr.get_or_add_numPr()
+        for child in list(numPr):
+            numPr.remove(child)
+        ilvl = OxmlElement('w:ilvl')
+        ilvl.set(qn('w:val'), str(level))
+        numPr.append(ilvl)
+        numId_elm = OxmlElement('w:numId')
+        numId_elm.set(qn('w:val'), str(num_id))
+        numPr.append(numId_elm)
+    # ############### 追加部分ここまで ###############
 
     #######################################################
     # blockquote (引用)
     #######################################################
     def _render_blockquote(self, token):
         """
-        引用ブロックを例示的に実装。スタイル 'Intense Quote' を適用。
+        引用ブロックを描画する。スタイル 'Intense Quote' を適用する。
         """
         self.current_paragraph = self.document.add_paragraph(style='Intense Quote')
         for child in token.get('children', []):
@@ -244,7 +269,7 @@ class DocxRenderer(mistune.AstRenderer):
     #######################################################
     def _render_thematic_break(self, token):
         """
-        簡易的に区切り線として "--------" を追加する例
+        区切り線として "--------" を追加する。
         """
         hr_para = self.document.add_paragraph()
         hr_para.add_run('--------------').bold = True
@@ -254,37 +279,8 @@ class DocxRenderer(mistune.AstRenderer):
     #######################################################
     def _render_table(self, token):
         """
-        Mistune 2.x plugin_table で生成されたトークンに合わせた実装。
-        token 例:
-
-        {
-        'type': 'table',
-        'children': [
-            {
-            'type': 'table_head',
-            'children': [
-                { 'type': 'table_cell', 'children': [...], 'align': None, 'is_head': True },
-                ...
-            ]
-            },
-            {
-            'type': 'table_body',
-            'children': [
-                {
-                'type': 'table_row',
-                'children': [
-                    { 'type': 'table_cell', 'children': [...], 'align': None, 'is_head': False },
-                    ...
-                ]
-                },
-                ...
-            ]
-            }
-        ]
-        }
+        Mistune 2.x plugin_table で生成されたトークンに合わせたテーブルを描画する。
         """
-
-        # table_head と table_body を見つける
         table_head = None
         table_cell = None
         for child in token.get('children', []):
@@ -292,14 +288,11 @@ class DocxRenderer(mistune.AstRenderer):
                 table_head = child
             elif child['type'] == 'table_body':
                 table_cell = child
-        
-        # ヘッダー情報の取得
-        # table_head["children"] は table_cell 群 (1行のみ)
+
         if table_head and 'children' in table_head:
             head_cells = table_head['children']
             col_count = len(head_cells)
         else:
-            # ヘッダーなしの場合 → body の最初の row から列数を推定
             if table_cell and 'children' in table_cell and len(table_cell['children']) > 0:
                 first_row = table_cell['children'][0]
                 if first_row.get('type') == 'table_row':
@@ -309,42 +302,32 @@ class DocxRenderer(mistune.AstRenderer):
             else:
                 col_count = 0
 
-        # テーブルを作成
         if col_count == 0:
             return
 
         table = self.document.add_table(rows=1, cols=col_count)
         table.style = 'Table Grid'
 
-        # (1) テーブルヘッダーの描画
         if table_head and table_head.get('children'):
-            # rows[0] にヘッダーを設定
             hdr_cells = table.rows[0].cells
             for i, cell_ast in enumerate(table_head['children']):
-                cell_text = self._extract_text(cell_ast)  # 下記ヘルパーで子要素を走査
+                cell_text = self._extract_text(cell_ast)
                 hdr_cells[i].text = cell_text
-                # ヘッダーは太字
                 for p in hdr_cells[i].paragraphs:
                     for r in p.runs:
                         r.bold = True
         else:
-            # ヘッダーなし → 空の見出し行を作るだけ
             pass
 
-        # (2) テーブルボディの描画
         if table_cell and table_cell.get('children'):
             for row_ast in table_cell['children']:
-                # row_ast: { 'type': 'table_row', 'children': [ ... table_cell ... ] }
                 if row_ast.get('type') != 'table_row':
                     continue
-                
-                # 新規行を追加
                 row_cells = table.add_row().cells
                 for col_idx, cell_ast in enumerate(row_ast.get('children', [])):
                     cell_text = self._extract_text(cell_ast)
                     row_cells[col_idx].text = cell_text
         else:
-            # 本文なし
             pass
 
     #######################################################
@@ -367,7 +350,6 @@ def delete_file(path: str):
     except Exception as e:
         logging.error(f"[delete_file] Error: {e}")
 
-
 def generate_word_file(
     background_tasks: BackgroundTasks,
     summaries: dict,            # 例: { "Perplexity": {...}, "ChatGPT": {...} }
@@ -378,22 +360,20 @@ def generate_word_file(
     """
     1. MarkdownをDocxRenderer (Mistune) でWordに変換
     2. valuation_dataを表形式で出力
-    3. Wordファイルを保存し、FileResponseで返却 (後処理でファイル削除)
+    3. Wordファイルを保存し、FileResponseで返却（後処理でファイル削除）
     """
-    
     ########################################
     # 1) Wordドキュメント作成
     ########################################
-    
     file_name = f"{company_name}_summary_report.docx"
     document = Document()
-    
-        # ドキュメントのデフォルトフォントを設定
+
+    # ドキュメントのデフォルトフォントを設定（Noto Sans JP）
     style = document.styles['Normal']
     font = style.font
-    font.name = 'Noto Sans JP'
-    font.element.rPr.rFonts.set(qn('w:eastAsia'), 'Noto Sans JP')
-
+    font.name = 'Meiryo'
+    font.element.rPr.rFonts.set(qn('w:eastAsia'), 'Meiryo')
+ 
     # タイトル段落
     title_para = document.add_paragraph(f"{company_name} - 要約レポート")
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -404,17 +384,19 @@ def generate_word_file(
     ########################################
     # 2) カスタムDocxRendererでMarkdownを解析
     ########################################
+    # カスタム番号定義の追加（numId=99）
+    add_custom_bullet_numbering(document, num_id=99)
 
     docx_renderer = DocxRenderer(document)
     md_parser = create_markdown(renderer=docx_renderer, plugins=[plugin_table])
 
-    # カテゴリ見出しのマッピング (任意)
+    # カテゴリ見出しのマッピング（任意）
     category_mapping = {
         "Perplexity": "Perplexity 分析",
         "ChatGPT": "ChatGPT+SPEEDA 分析",
     }
 
-    # セクション見出しのマッピング (任意)
+    # セクション見出しのマッピング（任意）
     reverse_key_mapping = {
         "current_situation": "現状",
         "future_outlook": "将来性と課題",
@@ -425,7 +407,6 @@ def generate_word_file(
         "swot_analysis": "SWOT分析",
     }
 
-
     for main_category, sections in summaries.items():
         # カテゴリ見出し
         cat_jp = category_mapping.get(main_category, main_category)
@@ -434,7 +415,6 @@ def generate_word_file(
         cat_run = cat_para.runs[0]
         cat_run.font.size = Pt(16)
         cat_run.bold = True
-        
 
         # 各セクション
         for idx, (sec_key, sec_text) in enumerate(sections.items(), start=1):
@@ -446,15 +426,8 @@ def generate_word_file(
             sec_run.bold = True
 
             # Markdown → Word
-            # 1) パースのみ（Markdown → ASTトークン）
             tokens = md_parser.parse(sec_text or "内容がありません")
-
-            # 2) レンダリング実行（ASTトークン → docx_renderer）
-            #   state は省略可・または {} などでOK
             docx_renderer.render(tokens, state={})
-            
-
-
 
     ########################################
     # 3) バリュエーションテーブル追加 (オプション)
@@ -479,7 +452,6 @@ def generate_word_file(
                     r_.font.bold = True
                     r_.font.size = Pt(10)
 
-        # データ行追加
         for label_, val_obj in valuation_data.items():
             row_cells = table.add_row().cells
             row_cells[0].text = label_
@@ -490,7 +462,6 @@ def generate_word_file(
                 row_cells[1].text = str(val_obj)
                 row_cells[2].text = "不明"
 
-            # セル書式
             for cell_ in row_cells:
                 for p_ in cell_.paragraphs:
                     p_.style = document.styles['Normal']
@@ -512,5 +483,3 @@ def generate_word_file(
         filename=file_name,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
-    
-
