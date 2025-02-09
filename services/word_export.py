@@ -201,8 +201,9 @@ class DocxRenderer(mistune.AstRenderer):
         """
         list_item を描画する。
         ・orderedの場合:
-           - 見出し直後の最初のorderedリストでは _restart_numbering() により番号を1からリセットする。
-           - それ以降は、_apply_custom_bullet() によりカスタム番号定義を適用する。
+           - 見出し直後の最初のorderedリストでは _restart_numbering() を利用して番号を再スタートさせるが、
+             このとき、レベルは現在のリストのインデントレベル (level) を指定する（※変更点）。
+           - その後は、_apply_custom_bullet() を用いて、現在のレベルに応じたバレット記号を適用する。
         ・unorderedの場合は List Bullet スタイルが適用される。
         """
         if ordered:
@@ -214,12 +215,12 @@ class DocxRenderer(mistune.AstRenderer):
 
         if ordered:
             if self._reset_numbering_for_next_list:
-                self._restart_numbering(self.current_paragraph, level=0, num_id=1)
+                # ★★【変更点】★★: レベルを固定0ではなく、現在の level を指定する
+                self._restart_numbering(self.current_paragraph, level=level, num_id=1)
                 self._reset_numbering_for_next_list = False
             else:
-                # ordered リストの場合、カスタム番号定義を適用
                 DocxRenderer._apply_custom_bullet(self.current_paragraph, level=level, num_id=99)
-        # unorderedの場合は何もせずそのまま
+        # unorderedの場合はそのまま
 
         for child in token.get('children', []):
             ctype = child['type']
@@ -236,7 +237,7 @@ class DocxRenderer(mistune.AstRenderer):
     def _restart_numbering(self, paragraph, level=0, num_id=1):
         """
         指定した段落に対して、番号付けを num_id の定義に沿って設定し、
-        レベル (ilvl) も設定する。これにより、その段落の番号付けを1から再スタートする。
+        レベル (ilvl) も設定する。これにより、その段落の番号付けを再スタートする。
         """
         p = paragraph._p  # 段落の内部XMLオブジェクト
         pPr = p.get_or_add_pPr()
@@ -316,6 +317,7 @@ class DocxRenderer(mistune.AstRenderer):
                 for p in hdr_cells[i].paragraphs:
                     for r in p.runs:
                         r.bold = True
+                        r.font.size = Pt(10)
         else:
             pass
 
@@ -368,7 +370,9 @@ def generate_word_file(
     file_name = f"{company_name}_summary_report.docx"
     document = Document()
 
-    # ドキュメントのデフォルトフォントを設定（Noto Sans JP）
+    # ★★【変更点④】★★
+    # ドキュメントのデフォルトフォントを設定（Noto Sans JP → Meiryo に変更）
+    # Windowsユーザー向けに「Meiryo（メイリオ）」を利用します。
     style = document.styles['Normal']
     font = style.font
     font.name = 'Meiryo'
