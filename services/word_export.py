@@ -391,7 +391,7 @@ def generate_word_file(
 
     ########################################
     # 3) バリュエーションテーブル追加 (オプション)
-    ########################################
+    #######################################
     if valuation_data:
         val_para = document.add_paragraph("バリュエーション")
         val_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
